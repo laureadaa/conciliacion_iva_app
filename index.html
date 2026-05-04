@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Conciliación del IVA — España</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>Conciliación del IVA</h1>
+    <span class="subtitle">Contabilidad ↔ Libros ↔ Modelo 303 ↔ Modelo 390</span>
+  </div>
+  <div class="actions">
+    <label class="year">
+      Ejercicio
+      <input id="ejercicio" type="number" min="2000" max="2099" value="2025" />
+    </label>
+    <button id="btn-ejemplo" class="btn ghost" type="button">Cargar ejemplo</button>
+    <button id="btn-limpiar" class="btn ghost" type="button">Limpiar</button>
+    <button id="btn-guardar" class="btn primary" type="button">Guardar</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="libros" role="tab">1. Libros de IVA</button>
+  <button class="tab" data-tab="m303" role="tab">2. Modelo 303</button>
+  <button class="tab" data-tab="m390" role="tab">3. Modelo 390</button>
+  <button class="tab" data-tab="contab" role="tab">4. Contabilidad</button>
+  <button class="tab" data-tab="result" role="tab">5. Conciliación</button>
+</nav>
+
+<main>
+  <!-- ============== LIBROS ============== -->
+  <section class="panel active" id="tab-libros">
+    <div class="panel-head">
+      <h2>Libros registro de IVA</h2>
+      <p>Introduce las facturas emitidas y recibidas por trimestre. La aplicación calcula bases y cuotas por tipo.</p>
+    </div>
+
+    <div class="trimester-switch">
+      <label><input type="radio" name="tri-libro" value="1" checked /> 1T</label>
+      <label><input type="radio" name="tri-libro" value="2" /> 2T</label>
+      <label><input type="radio" name="tri-libro" value="3" /> 3T</label>
+      <label><input type="radio" name="tri-libro" value="4" /> 4T</label>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <header>
+          <h3>Facturas emitidas (IVA devengado)</h3>
+          <button class="btn small" data-add="emitidas" type="button">+ Añadir</button>
+        </header>
+        <table class="data-table" id="tbl-emitidas">
+          <thead>
+            <tr>
+              <th>Fecha</th><th>Nº factura</th><th>Cliente</th>
+              <th>Tipo IVA</th><th class="num">Base</th><th class="num">Cuota</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4">Total trimestre</td>
+              <td class="num" id="tot-emitidas-base">0,00</td>
+              <td class="num" id="tot-emitidas-cuota">0,00</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="totales-tipo" id="tot-emitidas-tipo"></div>
+      </div>
+
+      <div class="card">
+        <header>
+          <h3>Facturas recibidas (IVA soportado deducible)</h3>
+          <button class="btn small" data-add="recibidas" type="button">+ Añadir</button>
+        </header>
+        <table class="data-table" id="tbl-recibidas">
+          <thead>
+            <tr>
+              <th>Fecha</th><th>Nº factura</th><th>Proveedor</th>
+              <th>Tipo IVA</th><th class="num">Base</th><th class="num">Cuota</th>
+              <th>Deducible</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4">Total trimestre</td>
+              <td class="num" id="tot-recibidas-base">0,00</td>
+              <td class="num" id="tot-recibidas-cuota">0,00</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="totales-tipo" id="tot-recibidas-tipo"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== MODELO 303 ============== -->
+  <section class="panel" id="tab-m303">
+    <div class="panel-head">
+      <h2>Modelo 303 — Autoliquidación trimestral</h2>
+      <p>Introduce las casillas declaradas en cada trimestre.</p>
+    </div>
+
+    <div class="trimester-switch">
+      <label><input type="radio" name="tri-303" value="1" checked /> 1T</label>
+      <label><input type="radio" name="tri-303" value="2" /> 2T</label>
+      <label><input type="radio" name="tri-303" value="3" /> 3T</label>
+      <label><input type="radio" name="tri-303" value="4" /> 4T</label>
+    </div>
+
+    <div class="card">
+      <h3>Régimen general — IVA devengado</h3>
+      <div class="grid casillas">
+        <div class="casilla-group">
+          <label>Tipo 21 %</label>
+          <div class="casilla-row">
+            <span>Base (01)</span><input data-303="b21" type="number" step="0.01" /></div>
+          <div class="casilla-row">
+            <span>% (02)</span><input value="21" disabled /></div>
+          <div class="casilla-row">
+            <span>Cuota (03)</span><input data-303="c21" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Tipo 10 %</label>
+          <div class="casilla-row"><span>Base (04)</span><input data-303="b10" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>% (05)</span><input value="10" disabled /></div>
+          <div class="casilla-row"><span>Cuota (06)</span><input data-303="c10" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Tipo 4 %</label>
+          <div class="casilla-row"><span>Base (07)</span><input data-303="b4" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>% (08)</span><input value="4" disabled /></div>
+          <div class="casilla-row"><span>Cuota (09)</span><input data-303="c4" type="number" step="0.01" /></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Adquisiciones intracomunitarias e ISP</h3>
+      <div class="grid casillas">
+        <div class="casilla-group">
+          <label>Adq. intracomunitarias bienes/servicios (10–11)</label>
+          <div class="casilla-row"><span>Base (10)</span><input data-303="b_intra" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota (11)</span><input data-303="c_intra" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Inversión sujeto pasivo (12–13)</label>
+          <div class="casilla-row"><span>Base (12)</span><input data-303="b_isp" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota (13)</span><input data-303="c_isp" type="number" step="0.01" /></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>IVA deducible</h3>
+      <div class="grid casillas">
+        <div class="casilla-group">
+          <label>Bienes y servicios corrientes (28–29)</label>
+          <div class="casilla-row"><span>Base (28)</span><input data-303="b_ded_corr" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota (29)</span><input data-303="c_ded_corr" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Bienes de inversión (30–31)</label>
+          <div class="casilla-row"><span>Base (30)</span><input data-303="b_ded_inv" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota (31)</span><input data-303="c_ded_inv" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Adq. intracom. deducibles (36–37)</label>
+          <div class="casilla-row"><span>Base (36)</span><input data-303="b_ded_intra" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota (37)</span><input data-303="c_ded_intra" type="number" step="0.01" /></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card resumen-303">
+      <div class="resumen-line"><span>Total cuota devengada (27)</span><strong id="r303-dev">0,00</strong></div>
+      <div class="resumen-line"><span>Total a deducir (45)</span><strong id="r303-ded">0,00</strong></div>
+      <div class="resumen-line big"><span>Resultado régimen general (46)</span><strong id="r303-res">0,00</strong></div>
+      <div class="resumen-line big"><span>A ingresar / a devolver (71)</span><strong id="r303-71">0,00</strong></div>
+    </div>
+  </section>
+
+  <!-- ============== MODELO 390 ============== -->
+  <section class="panel" id="tab-m390">
+    <div class="panel-head">
+      <h2>Modelo 390 — Resumen anual</h2>
+      <p>Si tributas por SII o REDEME no presentas 390; en ese caso usa los libros AEAT como referencia anual.</p>
+    </div>
+
+    <div class="card">
+      <label class="check">
+        <input type="checkbox" id="presenta-390" checked />
+        Presenta modelo 390 (si tributa por SII o REDEME, desmarcar)
+      </label>
+    </div>
+
+    <div class="card" id="m390-form">
+      <h3>Datos declarados en el modelo 390</h3>
+      <div class="grid casillas">
+        <div class="casilla-group">
+          <label>Devengado tipo 21 %</label>
+          <div class="casilla-row"><span>Base</span><input data-390="b21" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota</span><input data-390="c21" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Devengado tipo 10 %</label>
+          <div class="casilla-row"><span>Base</span><input data-390="b10" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota</span><input data-390="c10" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Devengado tipo 4 %</label>
+          <div class="casilla-row"><span>Base</span><input data-390="b4" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota</span><input data-390="c4" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Total deducible</label>
+          <div class="casilla-row"><span>Base</span><input data-390="b_ded" type="number" step="0.01" /></div>
+          <div class="casilla-row"><span>Cuota</span><input data-390="c_ded" type="number" step="0.01" /></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== CONTABILIDAD ============== -->
+  <section class="panel" id="tab-contab">
+    <div class="panel-head">
+      <h2>Saldos contables (PGC)</h2>
+      <p>Saldos acumulados anuales de las cuentas de IVA según el balance de sumas y saldos.</p>
+    </div>
+
+    <div class="card">
+      <div class="grid casillas">
+        <div class="casilla-group">
+          <label>477 — H.P. IVA repercutido</label>
+          <div class="casilla-row"><span>Saldo H</span><input data-cont="c477" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>472 — H.P. IVA soportado</label>
+          <div class="casilla-row"><span>Saldo D</span><input data-cont="c472" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>4750 — H.P. acreedora IVA</label>
+          <div class="casilla-row"><span>Saldo H</span><input data-cont="c4750" type="number" step="0.01" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>4700 — H.P. deudora IVA</label>
+          <div class="casilla-row"><span>Saldo D</span><input data-cont="c4700" type="number" step="0.01" /></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== RESULTADOS ============== -->
+  <section class="panel" id="tab-result">
+    <div class="panel-head">
+      <h2>Resultado de las conciliaciones</h2>
+      <p>Tolerancia: ±1 € por periodo y ±1 % de diferencia. Si se supera → REVISAR.</p>
+    </div>
+
+    <div class="card">
+      <h3>1. Contabilidad ↔ Libros de IVA (anual)</h3>
+      <table class="recon-table" id="recon-cont"></table>
+    </div>
+
+    <div class="card">
+      <h3>2. Libros de IVA ↔ Modelo 303 (por trimestre)</h3>
+      <div class="trimester-switch">
+        <label><input type="radio" name="tri-result" value="1" checked /> 1T</label>
+        <label><input type="radio" name="tri-result" value="2" /> 2T</label>
+        <label><input type="radio" name="tri-result" value="3" /> 3T</label>
+        <label><input type="radio" name="tri-result" value="4" /> 4T</label>
+      </div>
+      <table class="recon-table" id="recon-303"></table>
+      <div class="hint" id="hint-303"></div>
+    </div>
+
+    <div class="card">
+      <h3>3. Σ Modelo 303 ↔ Modelo 390 (anual)</h3>
+      <table class="recon-table" id="recon-390"></table>
+    </div>
+
+    <div class="card alert-card" id="causas-card" hidden>
+      <h3>Posibles causas a investigar</h3>
+      <ul>
+        <li>Facturas rectificativas registradas en libro pero no minoradas en el 303 (o viceversa).</li>
+        <li>Operaciones con inversión del sujeto pasivo (ISP): aparecen en libros pero van a casillas distintas (12–13 devengado y 28–29 deducible simultáneamente).</li>
+        <li>Adquisiciones intracomunitarias: casillas 10–11 devengado y 36–37 deducible.</li>
+        <li>Cuotas no deducibles por prorrata o por afectación parcial (vehículos, atenciones a clientes).</li>
+        <li>Errores de codificación del tipo de IVA en el ERP.</li>
+        <li>Asientos directos a 477/472 sin pasar por libro.</li>
+        <li>IVA de inmovilizado mal periodificado, regularizaciones de prorrata (art. 105 LIVA) o de bienes de inversión (art. 107 LIVA).</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Aplicación local · Datos en <code>localStorage</code> del navegador.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
