@@ -3,571 +3,64 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Conciliación del IVA — España</title>
+<title>Conciliación del IVA</title>
 <link rel="stylesheet" href="styles.css" />
 <script src="vendor/xlsx.full.min.js"></script>
-<script src="vendor/pdf.min.js"></script>
-<script>
-  if (window.pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
-  }
-</script>
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <h1>Conciliación del IVA</h1>
-  </div>
-  <div class="actions">
-    <label class="year">
-      Ejercicio
+<header>
+  <h1>Conciliación del IVA</h1>
+  <div class="hdr-actions">
+    <label>Ejercicio
       <input id="ejercicio" type="number" min="2000" max="2099" value="2025" />
     </label>
-    <button id="btn-toggle-tabs" class="btn ghost" type="button" title="Mostrar pestañas avanzadas">⚙ Vista detallada</button>
-    <input id="imp-json" type="file" accept="application/json,.json" hidden />
+    <button id="btn-clear" type="button">Limpiar todo</button>
   </div>
 </header>
 
-<nav class="tabs" role="tablist" hidden>
-  <button class="tab active" data-tab="inicio" role="tab">🏠 Inicio</button>
-  <button class="tab" data-tab="entidad" role="tab">0. Entidad</button>
-  <button class="tab" data-tab="libros" role="tab">1. Libros de IVA</button>
-  <button class="tab" data-tab="m303" role="tab">2. Modelo 303</button>
-  <button class="tab" data-tab="m390" role="tab">3. Modelo 390</button>
-  <button class="tab" data-tab="contab" role="tab">4. Contabilidad</button>
-  <button class="tab" data-tab="result" role="tab">5. Conciliación</button>
-  <button class="tab" data-tab="formulas" role="tab">📐 Fórmulas</button>
-</nav>
-
 <main>
-  <!-- ============== INICIO (vista simple por defecto) ============== -->
-  <section class="panel active" id="tab-inicio">
-    <div class="card big-drop">
-      <label class="dropzone universal" for="imp-universal">
-        <strong>📥 Suelta aquí tus libros o modelos</strong>
-        <span>Excel/CSV de libros (ventas o compras) · PDF del Modelo 303/390 · La app lo procesa solo.</span>
+  <section class="grid-2">
+    <div>
+      <label class="dropzone" for="up-ventas">
+        <strong>📤 Libro de Ventas (facturas emitidas)</strong>
+        <span id="info-ventas">Suelta aquí tu Excel/CSV o haz clic.</span>
       </label>
-      <input id="imp-universal" type="file" accept=".xlsx,.xls,.csv,application/pdf" multiple hidden />
-      <div id="status-bar" class="status-bar"></div>
+      <input id="up-ventas" type="file" accept=".xlsx,.xls,.csv" hidden />
     </div>
-
-    <div class="card">
-      <h2 style="margin:0 0 12px;font-size:16px;">Resumen del IVA</h2>
-      <table class="recon-table" id="resumen-iva-simple"></table>
-      <div id="conciliacion-simple"></div>
-    </div>
-
-    <div class="simple-toolbar">
-      <button id="btn-ejemplo" class="btn ghost" type="button">Cargar ejemplo</button>
-      <button id="btn-export-json" class="btn ghost" type="button">💾 Exportar copia</button>
-      <label class="btn ghost" for="imp-json">📂 Importar copia</label>
-      <button id="btn-guardar" class="btn ghost" type="button" style="display:none;">Guardar</button>
-      <button id="btn-limpiar" class="btn ghost" type="button">🗑 Limpiar todo</button>
-    </div>
-  </section>
-  <!-- ============== ENTIDAD ============== -->
-  <section class="panel" id="tab-entidad">
-    <div class="panel-head">
-      <h2>Datos de la entidad</h2>
-      <p>Información de cabecera para el informe de conciliación.</p>
-    </div>
-    <div class="card">
-      <div class="grid casillas">
-        <div class="casilla-group">
-          <label>Razón social</label>
-          <div class="casilla-row"><span>Nombre</span><input data-ent="nombre" type="text" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Identificación fiscal</label>
-          <div class="casilla-row"><span>NIF</span><input data-ent="nif" type="text" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Sector</label>
-          <div class="casilla-row"><span>Actividad</span><input data-ent="sector" type="text" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Modo de declaración</label>
-          <div class="casilla-row">
-            <span>Tipo</span>
-            <select id="modo-decl">
-              <option value="trimestral">Trimestral</option>
-              <option value="mensual">Mensual (SII)</option>
-            </select>
-          </div>
-        </div>
-        <div class="casilla-group">
-          <label>Período</label>
-          <div class="casilla-row"><span>Inicio</span><input data-ent="periodoInicio" type="month" /></div>
-          <div class="casilla-row"><span>Fin</span><input data-ent="periodoFin" type="month" /></div>
-        </div>
-      </div>
+    <div>
+      <label class="dropzone" for="up-compras">
+        <strong>📥 Libro de Compras (facturas recibidas)</strong>
+        <span id="info-compras">Suelta aquí tu Excel/CSV o haz clic.</span>
+      </label>
+      <input id="up-compras" type="file" accept=".xlsx,.xls,.csv" hidden />
     </div>
   </section>
 
-  <!-- ============== LIBROS ============== -->
-  <section class="panel" id="tab-libros">
-    <div class="panel-head">
-      <h2>Libros registro de IVA</h2>
-      <p>Introduce las facturas emitidas y recibidas por trimestre. La aplicación calcula bases y cuotas por tipo.</p>
-    </div>
-
-    <div class="trimester-switch" data-switch="tri-libro"></div>
-
-    <div class="grid two">
-      <div class="card">
-        <header>
-          <h3>📤 Libro de Ventas — Facturas emitidas (IVA devengado)</h3>
-          <div class="header-actions">
-            <button class="btn small" data-add="emitidas" type="button">+ Añadir factura</button>
-          </div>
-        </header>
-        <label class="dropzone" for="imp-emitidas-xlsx">
-          <strong>📥 Sube aquí tu Libro de Ventas (Excel / CSV)</strong>
-          <span>Arrastra el archivo o haz clic para seleccionarlo</span>
-        </label>
-        <input id="imp-emitidas-xlsx" type="file" accept=".xlsx,.xls,.csv" hidden />
-        <label class="dropzone secondary" for="imp-emitidas-pdf">
-          <strong>📄 ...o sube un PDF del Libro de Ventas</strong>
-          <span>Detección automática (best-effort)</span>
-        </label>
-        <input id="imp-emitidas-pdf" type="file" accept="application/pdf" multiple hidden />
-        <div class="table-scroll">
-          <table class="data-table" id="tbl-emitidas">
-            <colgroup>
-              <col class="col-fecha"><col class="col-num"><col class="col-contraparte">
-              <col class="col-tipo"><col class="col-base"><col class="col-cuota"><col class="col-del">
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Fecha</th><th>Nº factura</th><th>Cliente</th>
-                <th>Tipo IVA</th><th class="num">Base</th><th class="num">Cuota</th><th></th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-            <tfoot>
-              <tr>
-                <td colspan="4">Total trimestre</td>
-                <td class="num" id="tot-emitidas-base">0,00</td>
-                <td class="num" id="tot-emitidas-cuota">0,00</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        <div class="totales-tipo" id="tot-emitidas-tipo"></div>
-      </div>
-
-      <div class="card">
-        <header>
-          <h3>📥 Libro de Compras — Facturas recibidas (IVA soportado deducible)</h3>
-          <div class="header-actions">
-            <button class="btn small" data-add="recibidas" type="button">+ Añadir factura</button>
-          </div>
-        </header>
-        <label class="dropzone" for="imp-recibidas-xlsx">
-          <strong>📥 Sube aquí tu Libro de Compras (Excel / CSV)</strong>
-          <span>Arrastra el archivo o haz clic para seleccionarlo</span>
-        </label>
-        <input id="imp-recibidas-xlsx" type="file" accept=".xlsx,.xls,.csv" hidden />
-        <label class="dropzone secondary" for="imp-recibidas-pdf">
-          <strong>📄 ...o sube un PDF del Libro de Compras</strong>
-          <span>Detección automática (best-effort)</span>
-        </label>
-        <input id="imp-recibidas-pdf" type="file" accept="application/pdf" multiple hidden />
-        <div class="table-scroll">
-          <table class="data-table" id="tbl-recibidas">
-            <colgroup>
-              <col class="col-fecha"><col class="col-num"><col class="col-contraparte">
-              <col class="col-tipo"><col class="col-base"><col class="col-cuota">
-              <col class="col-deducible"><col class="col-del">
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Fecha</th><th>Nº factura</th><th>Proveedor</th>
-                <th>Tipo IVA</th><th class="num">Base</th><th class="num">Cuota</th>
-                <th>Deducible</th><th></th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-            <tfoot>
-              <tr>
-                <td colspan="4">Total trimestre</td>
-                <td class="num" id="tot-recibidas-base">0,00</td>
-                <td class="num" id="tot-recibidas-cuota">0,00</td>
-                <td colspan="2"></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        <div class="totales-tipo" id="tot-recibidas-tipo"></div>
-      </div>
-    </div>
+  <section class="card">
+    <h2>Resumen del IVA</h2>
+    <table id="tabla-resumen"></table>
+    <p class="hint" id="hint-resumen">Sube tus libros para ver los totales por trimestre y el resultado a ingresar/devolver.</p>
   </section>
 
-  <!-- ============== MODELO 303 ============== -->
-  <section class="panel" id="tab-m303">
-    <div class="panel-head">
-      <h2>Modelo 303 — Autoliquidación trimestral</h2>
-      <p>Introduce las casillas declaradas en cada trimestre.</p>
-    </div>
-
-    <div class="row-bar">
-      <div class="trimester-switch" data-switch="tri-303"></div>
-      <div class="header-actions">
-        <button class="btn small" id="btn-303-desde-libro" type="button" title="Volcar los totales del libro del período activo a las casillas del 303">⤴ Rellenar 303 desde libros</button>
-        <label class="btn small primary" for="imp-303-pdf">📄 Subir PDFs del Modelo 303 (varios a la vez)</label>
-        <input id="imp-303-pdf" type="file" accept="application/pdf" multiple hidden />
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>Régimen general — IVA devengado</h3>
-      <div class="grid casillas">
-        <div class="casilla-group">
-          <label>Tipo 21 %</label>
-          <div class="casilla-row">
-            <span>Base (01)</span><input data-303="b21" type="number" step="0.01" /></div>
-          <div class="casilla-row">
-            <span>% (02)</span><input value="21" disabled /></div>
-          <div class="casilla-row">
-            <span>Cuota (03)</span><input data-303="c21" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Tipo 10 %</label>
-          <div class="casilla-row"><span>Base (04)</span><input data-303="b10" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>% (05)</span><input value="10" disabled /></div>
-          <div class="casilla-row"><span>Cuota (06)</span><input data-303="c10" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Tipo 4 %</label>
-          <div class="casilla-row"><span>Base (07)</span><input data-303="b4" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>% (08)</span><input value="4" disabled /></div>
-          <div class="casilla-row"><span>Cuota (09)</span><input data-303="c4" type="number" step="0.01" /></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>Adquisiciones intracomunitarias e ISP</h3>
-      <div class="grid casillas">
-        <div class="casilla-group">
-          <label>Adq. intracomunitarias bienes/servicios (10–11)</label>
-          <div class="casilla-row"><span>Base (10)</span><input data-303="b_intra" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota (11)</span><input data-303="c_intra" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Inversión sujeto pasivo (12–13)</label>
-          <div class="casilla-row"><span>Base (12)</span><input data-303="b_isp" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota (13)</span><input data-303="c_isp" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Compensaciones REAGYP (41)</label>
-          <div class="casilla-row"><span>Cuota (41)</span><input data-303="c_reagyp" type="number" step="0.01" /></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>IVA deducible</h3>
-      <div class="grid casillas">
-        <div class="casilla-group">
-          <label>Bienes y servicios corrientes (28–29)</label>
-          <div class="casilla-row"><span>Base (28)</span><input data-303="b_ded_corr" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota (29)</span><input data-303="c_ded_corr" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Bienes de inversión (30–31)</label>
-          <div class="casilla-row"><span>Base (30)</span><input data-303="b_ded_inv" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota (31)</span><input data-303="c_ded_inv" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Adq. intracom. deducibles (36–37)</label>
-          <div class="casilla-row"><span>Base (36)</span><input data-303="b_ded_intra" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota (37)</span><input data-303="c_ded_intra" type="number" step="0.01" /></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>Compensaciones de períodos anteriores</h3>
-      <div class="grid casillas">
-        <div class="casilla-group">
-          <label>Cuotas a compensar de períodos anteriores (78)</label>
-          <div class="casilla-row"><span>Cuota (78)</span><input data-303="c78" type="number" step="0.01" /></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card resumen-303">
-      <div class="resumen-line"><span>Total cuota devengada (27)</span><strong id="r303-dev">0,00</strong></div>
-      <div class="resumen-line"><span>Total a deducir (45)</span><strong id="r303-ded">0,00</strong></div>
-      <div class="resumen-line"><span>Resultado régimen general (46)</span><strong id="r303-res">0,00</strong></div>
-      <div class="resumen-line"><span>− compensación cuotas anteriores (78)</span><strong id="r303-78">0,00</strong></div>
-      <div class="resumen-line big"><span>A ingresar / a devolver (71)</span><strong id="r303-71">0,00</strong></div>
-    </div>
-
-    <div class="card">
-      <h3>Resumen anual del Modelo 303</h3>
-      <table class="recon-table" id="resumen-anual-303"></table>
-    </div>
-  </section>
-
-  <!-- ============== MODELO 390 ============== -->
-  <section class="panel" id="tab-m390">
-    <div class="panel-head">
-      <h2>Modelo 390 — Resumen anual</h2>
-      <p>Si tributas por SII o REDEME no presentas 390; en ese caso usa los libros AEAT como referencia anual.</p>
-    </div>
-
-    <div class="card">
-      <div class="row-bar">
-        <label class="check">
-          <input type="checkbox" id="presenta-390" checked />
-          Presenta modelo 390 (si tributa por SII o REDEME, desmarcar)
-        </label>
-        <div class="header-actions">
-          <label class="btn small" for="imp-390-pdf">Importar PDF Modelo 390</label>
-          <input id="imp-390-pdf" type="file" accept="application/pdf" hidden />
-        </div>
-      </div>
-    </div>
-
-    <div class="card" id="m390-form">
-      <h3>Datos declarados en el modelo 390</h3>
-      <div class="grid casillas">
-        <div class="casilla-group">
-          <label>Devengado tipo 21 %</label>
-          <div class="casilla-row"><span>Base</span><input data-390="b21" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota</span><input data-390="c21" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Devengado tipo 10 %</label>
-          <div class="casilla-row"><span>Base</span><input data-390="b10" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota</span><input data-390="c10" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Devengado tipo 4 %</label>
-          <div class="casilla-row"><span>Base</span><input data-390="b4" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota</span><input data-390="c4" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>Total deducible</label>
-          <div class="casilla-row"><span>Base</span><input data-390="b_ded" type="number" step="0.01" /></div>
-          <div class="casilla-row"><span>Cuota</span><input data-390="c_ded" type="number" step="0.01" /></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============== CONTABILIDAD ============== -->
-  <section class="panel" id="tab-contab">
-    <div class="panel-head">
-      <h2>Saldos contables (PGC)</h2>
-      <p>Saldos acumulados anuales de las cuentas de IVA según el balance de sumas y saldos.</p>
-    </div>
-
-    <div class="card">
-      <div class="grid casillas">
-        <div class="casilla-group">
-          <label>477 — H.P. IVA repercutido</label>
-          <div class="casilla-row"><span>Saldo H</span><input data-cont="c477" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>472 — H.P. IVA soportado</label>
-          <div class="casilla-row"><span>Saldo D</span><input data-cont="c472" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>4750 — H.P. acreedora IVA</label>
-          <div class="casilla-row"><span>Saldo H</span><input data-cont="c4750" type="number" step="0.01" /></div>
-        </div>
-        <div class="casilla-group">
-          <label>4700 — H.P. deudora IVA</label>
-          <div class="casilla-row"><span>Saldo D</span><input data-cont="c4700" type="number" step="0.01" /></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============== RESULTADOS ============== -->
-  <section class="panel" id="tab-result">
-    <div class="panel-head">
-      <div class="row-bar">
-        <div>
-          <h2>Resultado de las conciliaciones</h2>
-          <p>Tolerancia: ±1 € por periodo y ±1 % de diferencia. Si se supera → REVISAR.</p>
-        </div>
-        <div class="header-actions">
-          <button class="btn primary" id="btn-export" type="button">Exportar informe Excel</button>
-        </div>
-      </div>
-    </div>
-    <div class="card" id="riesgo-summary"></div>
-
-    <div class="card">
-      <h3>1. Contabilidad ↔ Libros de IVA (anual)</h3>
-      <table class="recon-table" id="recon-cont"></table>
-    </div>
-
-    <div class="card">
-      <h3>2. Libros de IVA ↔ Modelo 303 (por trimestre)</h3>
-      <div class="trimester-switch" data-switch="tri-result"></div>
-      <table class="recon-table" id="recon-303"></table>
-      <div class="hint" id="hint-303"></div>
-    </div>
-
-    <div class="card">
-      <h3>3. Σ Modelo 303 ↔ Modelo 390 (anual)</h3>
-      <table class="recon-table" id="recon-390"></table>
-    </div>
-
-    <div class="card">
-      <div class="row-bar">
-        <h3>🔍 Desglose de cálculos (en vivo)</h3>
-        <label class="check"><input type="checkbox" id="show-formulas" /> Mostrar fórmulas con números reales</label>
-      </div>
-      <div id="desglose-vivo" hidden></div>
-    </div>
-
-    <div class="card alert-card" id="causas-card" hidden>
-      <h3>Posibles causas a investigar</h3>
-      <ul>
-        <li>Facturas rectificativas registradas en libro pero no minoradas en el 303 (o viceversa).</li>
-        <li>Operaciones con inversión del sujeto pasivo (ISP): aparecen en libros pero van a casillas distintas (12–13 devengado y 28–29 deducible simultáneamente).</li>
-        <li>Adquisiciones intracomunitarias: casillas 10–11 devengado y 36–37 deducible.</li>
-        <li>Cuotas no deducibles por prorrata o por afectación parcial (vehículos, atenciones a clientes).</li>
-        <li>Errores de codificación del tipo de IVA en el ERP.</li>
-        <li>Asientos directos a 477/472 sin pasar por libro.</li>
-        <li>IVA de inmovilizado mal periodificado, regularizaciones de prorrata (art. 105 LIVA) o de bienes de inversión (art. 107 LIVA).</li>
-      </ul>
-    </div>
-  </section>
-  <!-- ============== FÓRMULAS ============== -->
-  <section class="panel" id="tab-formulas">
-    <div class="panel-head">
-      <h2>📐 Fórmulas aplicadas</h2>
-      <p>Aquí tienes todas las fórmulas que usa la aplicación, paso a paso, para que puedas verificar que los números cuadran.</p>
-    </div>
-
-    <div class="card">
-      <h3>1. Totales del libro de IVA por trimestre/mes</h3>
-      <div class="formula-block">
-        <p><strong>Por tipo (21 %, 10 %, 4 %, 12 %, 10,5 %):</strong></p>
-        <pre>base_tipo  = Σ ( base_factura  donde tipoIVA = X )
-cuota_tipo = Σ ( cuota_factura donde tipoIVA = X )</pre>
-        <p><strong>Compras: cuota efectiva ajustada por % deducible:</strong></p>
-        <pre>cuota_deducible = cuota_factura × (% deducible / 100)</pre>
-        <p><strong>REAGYP</strong> (tipos 12 % y 10,5 %) se contabiliza en bucket separado, no como deducible normal:</p>
-        <pre>cuota_REAGYP = Σ ( cuota_factura  donde tipoIVA ∈ {12 ; 10,5} )</pre>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>2. Resumen del Modelo 303 (autoliquidación)</h3>
-      <pre>Total cuota devengada (27) = c21 + c10 + c4 + c_intra + c_isp
-Total a deducir (45)       = c_ded_corr + c_ded_inv + c_ded_intra
-Resultado régimen gral (46)= (27) − (45)
-A ingresar / a devolver (71) = (46)   [simplificado, sin compensaciones]</pre>
-      <p class="hint">Casillas: 01/03 → base/cuota 21 % · 04/06 → 10 % · 07/09 → 4 % · 10/11 → intracom · 12/13 → ISP · 28/29 → ded. corriente · 30/31 → ded. inversión · 36/37 → ded. intracom · 41 → compensación REAGYP.</p>
-    </div>
-
-    <div class="card">
-      <h3>3. Conciliación Contabilidad ↔ Libros (anual)</h3>
-      <pre>477 H.P. IVA repercutido    Libro: Σ cuotas devengadas anuales libro emitidas
-                            Contab: saldo H cuenta 477
-
-472 H.P. IVA soportado      Libro: Σ cuotas deducibles anuales (sin REAGYP)
-                            Contab: saldo D cuenta 472
-
-Saldo neto IVA              Libro: 477 − 472 (anual)
-                            Contab: 4750 − 4700</pre>
-    </div>
-
-    <div class="card">
-      <h3>4. Conciliación Libros ↔ Modelo 303 (por período)</h3>
-      <pre>Para cada trimestre (o mes en SII):
-  Devengado 21 % cuota  Libro: Σ cuotas emitidas con tipoIVA = 21
-                        303:   casilla 03
-
-  Devengado 10 % cuota  Libro: Σ cuotas emitidas con tipoIVA = 10
-                        303:   casilla 06
-
-  Devengado 4 % cuota   Libro: Σ cuotas emitidas con tipoIVA = 4
-                        303:   casilla 09
-
-  Deducible total       Libro: Σ cuotas recibidas (sin REAGYP) × %ded
-                        303:   casilla 29 + 31 + 37
-
-  Compensación REAGYP   Libro: Σ cuotas con tipoIVA ∈ {12 ; 10,5}
-                        303:   casilla 41</pre>
-    </div>
-
-    <div class="card">
-      <h3>5. Conciliación Σ 303 ↔ Modelo 390 (anual)</h3>
-      <pre>Σ 303 (concepto) = trim1 + trim2 + trim3 + trim4    [o suma de los 12 meses]
-390 (concepto)   = casilla equivalente del modelo 390
-Diferencia       = Σ 303 − 390</pre>
-      <p class="hint">El modelo 390 no se presenta si tributas por SII o REDEME. En esos casos la conciliación anual se hace contra los libros AEAT.</p>
-    </div>
-
-    <div class="card">
-      <h3>6. Cálculo de la diferencia y estado por línea</h3>
-      <pre>diferencia    = libro − modelo
-% diferencia  = |diferencia| / max(|libro|, |modelo|) × 100
-
-Estado:
-  OK       si  |diferencia| ≤ 1 €  Y  % diferencia ≤ 1 %
-  AVISO    si  |diferencia| &gt; 1 €  pero % diferencia ≤ 1 %
-  REVISAR  si  |diferencia| &gt; 1 €  Y  % diferencia &gt; 1 %</pre>
-      <p class="hint">Tolerancia configurada: <strong>±1 €</strong> y <strong>±1 %</strong> por línea (estándar de auditoría).</p>
-    </div>
-
-    <div class="card">
-      <h3>7. Clasificación de riesgo global</h3>
-      <pre>dDev     = | IVA devengado libro  − Σ cuotas devengadas 303 |
-dDed     = | IVA deducible libro  − Σ deducibles 303 |
-dReagyp  = | REAGYP libro         − Σ casilla 41 |
-
-Diferencia total  = dDev + dDed + dReagyp
-Desviación global = Diferencia total / (dev303 + ded303 + reagyp303) × 100
-
-Riesgo:
-  BAJO       si  Dif. total ≤ 4 €   Y  desviación ≤ 1 %
-  MODERADO   si  Dif. total &gt; 4 €   O  desviación &gt; 1 %
-  ALTO       si  Dif. total &gt; 20 €  O  desviación &gt; 5 %</pre>
-    </div>
-
-    <div class="card">
-      <h3>8. Detección automática del tipo de IVA en imports</h3>
-      <pre>Para cada celda "Tipo IVA" del Excel/CSV:
-  21 %  si | n − 21  | &lt; 0,5
-  12 %  si | n − 12  | &lt; 0,4   → REAGYP
-  10,5% si | n − 10,5| &lt; 0,4   → REAGYP
-  10 %  si | n − 10  | &lt; 0,4
-  4 %   si | n − 4   | &lt; 0,5
-  0 %   si | n − 0   | &lt; 0,5
-  por defecto: 21 %</pre>
-    </div>
+  <section class="card">
+    <h2>Comparativa con Modelo 303 declarado <small>(opcional)</small></h2>
+    <p class="hint">Introduce las cuotas que declaraste en cada trimestre para ver las diferencias frente a los libros.</p>
+    <table id="tabla-303"></table>
   </section>
 </main>
 
 <div id="modal" class="modal" hidden>
   <div class="modal-card">
-    <header>
-      <h3 id="modal-title">Previsualización</h3>
-      <button class="row-del" id="modal-close" type="button" title="Cerrar">×</button>
-    </header>
+    <h3 id="modal-title">Mapeo de columnas</h3>
     <div id="modal-body"></div>
-    <footer class="modal-foot">
-      <button class="btn ghost" id="modal-cancel" type="button">Cancelar</button>
-      <button class="btn primary" id="modal-ok" type="button">Aplicar</button>
-    </footer>
+    <div class="modal-foot">
+      <button id="modal-cancel" type="button">Cancelar</button>
+      <button id="modal-ok" type="button">Aplicar</button>
+    </div>
   </div>
 </div>
 
-<footer>
-  <p>Aplicación local · Datos en <code>localStorage</code> del navegador. ·
-     <a href="#" id="link-plantilla">Descargar plantilla Excel</a></p>
-</footer>
+<div id="toast" hidden></div>
 
 <script src="app.js"></script>
 </body>
