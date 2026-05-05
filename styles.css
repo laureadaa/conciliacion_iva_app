@@ -162,6 +162,20 @@ main { padding: 20px 24px 60px; max-width: 1600px; margin: 0 auto; }
 }
 .trimester-switch label:has(input:checked) { background: var(--primary); color: white; }
 .trimester-switch input { display: none; }
+.trimester-switch label .dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.trimester-switch label:has(input:checked) .dot { background: white; }
+.trimester-switch label.has-data { font-weight: 600; }
+
+.data-table tr.row-mismatch { background: #fff7ed; }
+.data-table tr.row-mismatch td { border-color: #fed7aa; }
+.data-table tr.row-mismatch input.num { color: var(--warn); }
 
 .table-scroll {
   overflow-x: auto;
