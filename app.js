@@ -1288,14 +1288,20 @@ function parseFecha(v) {
     const d = new Date(Math.round((v - 25569) * 86400 * 1000));
     return d.toISOString().slice(0, 10);
   }
-  const s = String(v).trim();
+  let s = String(v).trim();
+  // Quitar parte de hora si está pegada: "02/10/2024 0:00" / "2024-10-02T..."
+  s = s.replace(/[T\s]+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?(?:\s*[\-+]\d{2}:?\d{2}|Z)?\s*$/i, "");
+  s = s.trim();
   let m;
   if ((m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/))) {
     let [_, d, mo, y] = m;
     if (y.length === 2) y = (parseInt(y, 10) > 50 ? "19" : "20") + y;
     return `${y.padStart(4, "0")}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
   }
-  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return s.slice(0, 10);
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+    const [_, y, mo, d] = m;
+    return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
   return s;
 }
 
@@ -1341,15 +1347,23 @@ function importarLibroDesdeFilas(filas, tipo, tri) {
   // por coincidencias con HEADER_HINTS. Cae a la primera fila si nada encaja.
   const headerIdx = detectarFilaCabecera(filas);
   const headers = filas[headerIdx].map((c) => String(c ?? ""));
-  const mapping = detectarColumnas(headers);
   const datos = filas.slice(headerIdx + 1)
     .filter((r) => r.some((c) => c !== "" && c != null));
 
-  // Si la auto-detección cubre lo mínimo (fecha + base o cuota), abrimos un
-  // modal compacto de confirmación que muestra el mapeo detectado y un
-  // preview con los importes ya parseados. El usuario aprueba con un clic
-  // ("Importar") o ajusta manualmente. Si la detección es incompleta, vamos
-  // directos al mapeo manual completo.
+  // Detectar primero un formato multi-tipo (Base1/IVA1/tiva1 ... Base7/IVA7/tiva7),
+  // típico de programas como ContaPlus, A3 ASESOR y muchos asesoramientos.
+  // En este formato cada fila representa una factura con HASTA N tipos de IVA
+  // distintos en columnas paralelas, así que tenemos que expandirla en N filas.
+  const mappingMulti = detectarColumnasMultirate(headers);
+  if (mappingMulti && datos.length) {
+    abrirModalConfirmacionMultirate({
+      headers, mapping: mappingMulti, datos, tipo, tri, headerIdx,
+    });
+    return;
+  }
+
+  // Formato estándar (1 fila = 1 factura con base+cuota en sus propias columnas)
+  const mapping = detectarColumnas(headers);
   const tieneFecha = mapping.fecha != null;
   const tieneImporte = mapping.base != null || mapping.cuota != null;
   if (tieneFecha && tieneImporte && datos.length) {
@@ -1357,6 +1371,191 @@ function importarLibroDesdeFilas(filas, tipo, tri) {
   } else {
     abrirModalMapeo({ headers, mapping, datos, tipo, tri });
   }
+}
+
+/* Detecta libros con N tipos de IVA por factura en columnas Base1/IVA1/tiva1 …
+   donde:
+     BaseN  = base imponible al tipo N
+     IVAN   = % de ese tipo (21, 10, 4, 0, etc.)
+     tivaN  = cuota IVA correspondiente (= BaseN × IVAN/100)
+   También recoge serie/numero, apellidos/nombre, cif, fecha (con o sin hora). */
+function detectarColumnasMultirate(headers) {
+  const norm = headers.map(_normHeader);
+  const find = (...claves) => {
+    for (const k of claves) {
+      const i = norm.findIndex((h) => h === k);
+      if (i >= 0) return i;
+    }
+    return null;
+  };
+  // Localizar grupos Base/IVA/tiva (1..9 por si hay variantes)
+  const grupos = [];
+  for (let n = 1; n <= 9; n++) {
+    const baseIdx = find(`base${n}`, `base ${n}`);
+    const ivaIdx  = find(`iva${n}`,  `iva ${n}`,  `tipo${n}`,  `tipo ${n}`);
+    const cuotaIdx = find(`tiva${n}`, `tiva ${n}`, `cuota${n}`, `cuota ${n}`,
+                          `cuotaiva${n}`);
+    // Necesitamos al menos base+cuota; el % puede inferirse si falta
+    if (baseIdx != null && cuotaIdx != null) {
+      grupos.push({ n, base: baseIdx, iva: ivaIdx, cuota: cuotaIdx });
+    }
+  }
+  if (grupos.length === 0) return null;
+  return {
+    serie:     find("serie"),
+    numero:    find("numero", "num", "n", "n factura", "num factura"),
+    fecha:     find("fecha", "fecha factura", "f factura", "fecha emision",
+                    "fecha expedicion"),
+    fechaPro:  find("fecha pro", "fecha_pro", "fechapro", "fecha protocolo",
+                    "fecha registro"),
+    cif:       find("cif", "nif", "cif/nif", "nif/cif"),
+    apellidos: find("apellidos"),
+    nombre:    find("nombre", "razon social", "denominacion"),
+    grupos,
+  };
+}
+
+/* Expande cada fila multi-tipo en una o más facturas (una por grupo no-cero).
+   Reparte por período según fecha; si no hay fecha válida cae a triFallback. */
+function expandirYAplicarMultirate(datos, mapping, tipo, triFallback) {
+  const porPeriodo = {};
+  const periodosTocados = new Set();
+  let total = 0, saltadas = 0;
+  for (const r of datos) {
+    const get = (i) => i != null ? r[i] : "";
+    const fechaRaw = get(mapping.fecha) || get(mapping.fechaPro);
+    const fecha = parseFecha(fechaRaw);
+    const pk = periodoDesdeFecha(fecha) || triFallback;
+    const apellidos = String(get(mapping.apellidos) ?? "").trim();
+    const nombreCp  = String(get(mapping.nombre) ?? "").trim();
+    const contraparte = [apellidos, nombreCp].filter(Boolean).join(" ").trim()
+                       || String(get(mapping.cif) ?? "").trim();
+    const serie = String(get(mapping.serie) ?? "").trim();
+    const numeroBase = String(get(mapping.numero) ?? "").trim();
+    const numero = serie && numeroBase ? `${serie}/${numeroBase}` : (numeroBase || serie);
+
+    let algunaFila = false;
+    for (const g of mapping.grupos) {
+      const base = num(get(g.base));
+      const cuota = num(get(g.cuota));
+      let ivaPct = num(get(g.iva));
+      if (base === 0 && cuota === 0) continue;
+      if (!ivaPct && base > 0) ivaPct = round2(cuota / base * 100);
+      const tipoIva = normalizarTipoIva(String(ivaPct || 21));
+      const fila = { fecha, numero, contraparte, tipoIva, base, cuota };
+      if (tipo === "recibidas") fila.deducible = 100;
+      bucket(pk)[tipo].push(fila);
+      total++;
+      algunaFila = true;
+      porPeriodo[pk] = (porPeriodo[pk] || 0) + 1;
+      periodosTocados.add(pk);
+    }
+    if (!algunaFila) saltadas++;
+  }
+  return { total, porPeriodo, periodosTocados, saltadas };
+}
+
+function abrirModalConfirmacionMultirate({ headers, mapping, datos, tipo, tri, headerIdx }) {
+  document.getElementById("modal-title").textContent =
+    `Importar ${tipo === "emitidas" ? "facturas emitidas" : "facturas recibidas"} (multi-tipo)`;
+  const body = document.getElementById("modal-body");
+
+  const labels = {
+    fecha: "Fecha", numero: "Nº factura", contraparte: tipo === "emitidas" ? "Cliente" : "Proveedor",
+  };
+  const colName = (idx) => idx == null ? "—" : `“${escapeHtml(headers[idx] || "?")}”`;
+
+  // Preview: expandir las primeras filas en sus N sub-filas
+  const muestra = datos.slice(0, 5);
+  const filasPreview = [];
+  for (const r of muestra) {
+    const get = (i) => i != null ? r[i] : "";
+    const fecha = parseFecha(get(mapping.fecha) || get(mapping.fechaPro));
+    const apellidos = String(get(mapping.apellidos) ?? "").trim();
+    const nombreCp  = String(get(mapping.nombre) ?? "").trim();
+    const contraparte = [apellidos, nombreCp].filter(Boolean).join(" ").trim();
+    const serie = String(get(mapping.serie) ?? "").trim();
+    const numeroBase = String(get(mapping.numero) ?? "").trim();
+    const numero = serie && numeroBase ? `${serie}/${numeroBase}` : (numeroBase || serie);
+    for (const g of mapping.grupos) {
+      const base = num(get(g.base));
+      const cuota = num(get(g.cuota));
+      let ivaPct = num(get(g.iva));
+      if (base === 0 && cuota === 0) continue;
+      if (!ivaPct && base > 0) ivaPct = round2(cuota / base * 100);
+      filasPreview.push({ fecha, numero, contraparte,
+        tipoIva: normalizarTipoIva(String(ivaPct || 21)), base, cuota });
+    }
+  }
+
+  // Totales agregados
+  let totalBase = 0, totalCuota = 0, totalFilas = 0;
+  for (const r of datos) {
+    const get = (i) => i != null ? r[i] : "";
+    let any = false;
+    for (const g of mapping.grupos) {
+      const base = num(get(g.base));
+      const cuota = num(get(g.cuota));
+      if (base === 0 && cuota === 0) continue;
+      totalBase += base;
+      totalCuota += cuota;
+      totalFilas++;
+      any = true;
+    }
+    if (any) totalFilas; // contador
+  }
+
+  const cabeceras = `<th>Fecha</th><th>Nº</th><th>${labels.contraparte}</th>
+    <th class="num">Tipo</th><th class="num">Base</th><th class="num">Cuota</th>`;
+  const cuerpo = filasPreview.map((f) => `<tr>
+    <td>${escapeHtml(f.fecha || "")}</td>
+    <td>${escapeHtml(String(f.numero ?? ""))}</td>
+    <td>${escapeHtml(String(f.contraparte ?? ""))}</td>
+    <td class="num">${escapeHtml(f.tipoIva)} %</td>
+    <td class="num">${fmt(f.base)}</td>
+    <td class="num">${fmt(f.cuota)}</td>
+  </tr>`).join("");
+
+  body.innerHTML = `
+    <p class="preview-meta">
+      Detectado <strong>formato multi-tipo</strong> (cada fila puede llevar hasta
+      ${mapping.grupos.length} tipos de IVA distintos). Cabecera en la fila
+      <strong>${headerIdx + 1}</strong>. <strong>${datos.length}</strong> facturas
+      del archivo se expandirán a <strong>${totalFilas}</strong> líneas de libro.
+      Total base detectada: <strong>${fmt(totalBase)} €</strong> · cuota:
+      <strong>${fmt(totalCuota)} €</strong>.
+    </p>
+    <ul style="margin:0 0 12px 16px;padding:0;font-size:12px;line-height:1.7;color:var(--muted);">
+      <li>Fecha → ${colName(mapping.fecha)} ${mapping.fechaPro != null ? `(o ${colName(mapping.fechaPro)} si vacía)` : ""}</li>
+      <li>${tipo === "emitidas" ? "Cliente" : "Proveedor"} → ${colName(mapping.apellidos)} + ${colName(mapping.nombre)}</li>
+      <li>Nº factura → ${mapping.serie != null ? colName(mapping.serie) + " / " : ""}${colName(mapping.numero)}</li>
+      <li>${mapping.grupos.length} grupos Base/IVA/cuota detectados:
+        ${mapping.grupos.map((g) => `Base${g.n}/IVA${g.n}/tiva${g.n}`).join(", ")}</li>
+    </ul>
+    <h4 style="margin:6px 0;font-size:13px;">Vista previa (líneas expandidas):</h4>
+    <div class="table-scroll">
+      <table class="preview-table">
+        <thead><tr>${cabeceras}</tr></thead>
+        <tbody>${cuerpo}</tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById("modal-ok").textContent = `Importar ${totalFilas} líneas`;
+
+  abrirModal(() => {
+    document.getElementById("modal-ok").textContent = "Aplicar";
+    const res = expandirYAplicarMultirate(datos, mapping, tipo, tri);
+    autoRellenar303SiVacio(res.periodosTocados, tipo);
+    save();
+    renderLibros();
+    if (periodKeys(state.modoDeclaracion).some((k) => k === periodo303Activo)) render303();
+    renderResultados();
+    const partes = Object.entries(res.porPeriodo)
+      .map(([p, n]) => `${n} en ${periodLabel(p)}`).join(", ");
+    const skip = res.saltadas ? ` · ${res.saltadas} sin importes` : "";
+    flash(`${res.total} líneas importadas (${partes || "sin reparto"})${skip}.`);
+    return true;
+  });
 }
 
 /* Modal compacto: enseña la cabecera detectada, qué columna se asigna a qué
