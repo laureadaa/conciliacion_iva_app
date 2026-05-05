@@ -1456,12 +1456,13 @@ function expandirYAplicarMultirate(datos, mapping, tipo, triFallback) {
 }
 
 function abrirModalConfirmacionMultirate({ headers, mapping, datos, tipo, tri, headerIdx }) {
+  let tipoActual = tipo;
   document.getElementById("modal-title").textContent =
-    `Importar ${tipo === "emitidas" ? "facturas emitidas" : "facturas recibidas"} (multi-tipo)`;
+    `Importar ${tipoActual === "emitidas" ? "facturas emitidas" : "facturas recibidas"} (multi-tipo)`;
   const body = document.getElementById("modal-body");
 
   const labels = {
-    fecha: "Fecha", numero: "Nº factura", contraparte: tipo === "emitidas" ? "Cliente" : "Proveedor",
+    fecha: "Fecha", numero: "Nº factura", contraparte: tipoActual === "emitidas" ? "Cliente" : "Proveedor",
   };
   const colName = (idx) => idx == null ? "—" : `“${escapeHtml(headers[idx] || "?")}”`;
 
@@ -1516,18 +1517,51 @@ function abrirModalConfirmacionMultirate({ headers, mapping, datos, tipo, tri, h
     <td class="num">${fmt(f.cuota)}</td>
   </tr>`).join("");
 
+  // Resumen año/períodos a partir del campo fecha (o fechaPro si la fecha falta)
+  const yearsSet = new Set();
+  const periodosSet = new Set();
+  for (const r of datos) {
+    const get = (i) => i != null ? r[i] : "";
+    const f = parseFecha(get(mapping.fecha) || get(mapping.fechaPro));
+    const m = String(f).match(/^(\d{4})-(\d{2})/);
+    if (!m) continue;
+    yearsSet.add(m[1]);
+    const mm = parseInt(m[2], 10);
+    if (state.modoDeclaracion === "mensual") periodosSet.add(String(mm).padStart(2, "0"));
+    else periodosSet.add(TRIMESTRES[Math.floor((mm - 1) / 3)]);
+  }
+  const years = [...yearsSet].sort();
+  const periodosTxt = [...periodosSet].sort().join(", ") || "—";
+  const yearMismatch = years.length === 1 && years[0] !== String(state.ejercicio);
+  const yearWarn = yearMismatch
+    ? `<div class="hint" style="background:var(--warn-bg);color:var(--warn);padding:8px 10px;border-radius:6px;margin-bottom:10px;">
+         ⚠ El archivo es del ejercicio <strong>${escapeHtml(years[0])}</strong> pero tu ejercicio activo es <strong>${state.ejercicio}</strong>.
+         <a href="#" id="lnk-cambiar-ejercicio2" style="color:inherit;text-decoration:underline;">Cambiar a ${escapeHtml(years[0])}</a>.
+       </div>`
+    : "";
+
   body.innerHTML = `
+    ${yearWarn}
+    <div class="mapping-row" style="margin-bottom:12px;">
+      <label><strong>Tipo de libro</strong></label>
+      <select id="confirm-tipo-libro-mr">
+        <option value="emitidas" ${tipoActual === "emitidas" ? "selected" : ""}>📤 Emitidas (ventas / clientes)</option>
+        <option value="recibidas" ${tipoActual === "recibidas" ? "selected" : ""}>📥 Recibidas (compras / proveedores)</option>
+      </select>
+    </div>
     <p class="preview-meta">
       Detectado <strong>formato multi-tipo</strong> (cada fila puede llevar hasta
       ${mapping.grupos.length} tipos de IVA distintos). Cabecera en la fila
       <strong>${headerIdx + 1}</strong>. <strong>${datos.length}</strong> facturas
       del archivo se expandirán a <strong>${totalFilas}</strong> líneas de libro.
       Total base detectada: <strong>${fmt(totalBase)} €</strong> · cuota:
-      <strong>${fmt(totalCuota)} €</strong>.
+      <strong>${fmt(totalCuota)} €</strong>.<br>
+      Año(s): <strong>${escapeHtml(years.join(", ") || "no detectado")}</strong>.
+      Períodos cubiertos: <strong>${escapeHtml(periodosTxt)}</strong>.
     </p>
     <ul style="margin:0 0 12px 16px;padding:0;font-size:12px;line-height:1.7;color:var(--muted);">
       <li>Fecha → ${colName(mapping.fecha)} ${mapping.fechaPro != null ? `(o ${colName(mapping.fechaPro)} si vacía)` : ""}</li>
-      <li>${tipo === "emitidas" ? "Cliente" : "Proveedor"} → ${colName(mapping.apellidos)} + ${colName(mapping.nombre)}</li>
+      <li id="lbl-contraparte">${tipoActual === "emitidas" ? "Cliente" : "Proveedor"} → ${colName(mapping.apellidos)} + ${colName(mapping.nombre)}</li>
       <li>Nº factura → ${mapping.serie != null ? colName(mapping.serie) + " / " : ""}${colName(mapping.numero)}</li>
       <li>${mapping.grupos.length} grupos Base/IVA/cuota detectados:
         ${mapping.grupos.map((g) => `Base${g.n}/IVA${g.n}/tiva${g.n}`).join(", ")}</li>
@@ -1542,10 +1576,27 @@ function abrirModalConfirmacionMultirate({ headers, mapping, datos, tipo, tri, h
   `;
   document.getElementById("modal-ok").textContent = `Importar ${totalFilas} líneas`;
 
+  document.getElementById("confirm-tipo-libro-mr").addEventListener("change", (e) => {
+    tipoActual = e.target.value;
+    document.getElementById("modal-title").textContent =
+      `Importar ${tipoActual === "emitidas" ? "facturas emitidas" : "facturas recibidas"} (multi-tipo)`;
+    const lbl = document.getElementById("lbl-contraparte");
+    if (lbl) lbl.firstChild.textContent =
+      `${tipoActual === "emitidas" ? "Cliente" : "Proveedor"} → `;
+  });
+  const lnkY2 = document.getElementById("lnk-cambiar-ejercicio2");
+  if (lnkY2) lnkY2.addEventListener("click", (e) => {
+    e.preventDefault();
+    state.ejercicio = parseInt(years[0], 10);
+    document.getElementById("ejercicio").value = state.ejercicio;
+    save();
+    e.target.closest(".hint").remove();
+  });
+
   abrirModal(() => {
     document.getElementById("modal-ok").textContent = "Aplicar";
-    const res = expandirYAplicarMultirate(datos, mapping, tipo, tri);
-    autoRellenar303SiVacio(res.periodosTocados, tipo);
+    const res = expandirYAplicarMultirate(datos, mapping, tipoActual, tri);
+    autoRellenar303SiVacio(res.periodosTocados, tipoActual);
     save();
     renderLibros();
     if (periodKeys(state.modoDeclaracion).some((k) => k === periodo303Activo)) render303();
@@ -1553,7 +1604,7 @@ function abrirModalConfirmacionMultirate({ headers, mapping, datos, tipo, tri, h
     const partes = Object.entries(res.porPeriodo)
       .map(([p, n]) => `${n} en ${periodLabel(p)}`).join(", ");
     const skip = res.saltadas ? ` · ${res.saltadas} sin importes` : "";
-    flash(`${res.total} líneas importadas (${partes || "sin reparto"})${skip}.`);
+    flash(`${res.total} líneas (${tipoActual}) importadas (${partes || "sin reparto"})${skip}.`);
     return true;
   });
 }
@@ -1562,16 +1613,39 @@ function abrirModalConfirmacionMultirate({ headers, mapping, datos, tipo, tri, h
    campo y un preview con los importes ya parseados (para que se vea si los
    "1.234,56" se leen como 1234,56 € o como otra cosa). El usuario confirma
    con un clic; opcionalmente abre el modal completo para ajustar. */
+function _resumenAnual(datos, mapping) {
+  // Devuelve set de años, periodos cubiertos y meses (para mostrar al usuario
+  // qué períodos cubre el archivo).
+  const years = new Set();
+  const meses = new Set();
+  const periodos = new Set();
+  let conFecha = 0;
+  for (const r of datos) {
+    const f = parseFecha(mapping.fecha != null ? r[mapping.fecha] : "");
+    const m = String(f).match(/^(\d{4})-(\d{2})/);
+    if (!m) continue;
+    conFecha++;
+    years.add(m[1]);
+    meses.add(m[2]);
+    const mm = parseInt(m[2], 10);
+    if (state.modoDeclaracion === "mensual") periodos.add(String(mm).padStart(2, "0"));
+    else periodos.add(TRIMESTRES[Math.floor((mm - 1) / 3)]);
+  }
+  return { years: [...years].sort(), meses: [...meses].sort(),
+           periodos: [...periodos].sort(), conFecha, total: datos.length };
+}
+
 function abrirModalConfirmacion({ headers, mapping, datos, tipo, tri, headerIdx }) {
+  let tipoActual = tipo; // permite cambio dentro del modal
   document.getElementById("modal-title").textContent =
-    `Importar ${tipo === "emitidas" ? "facturas emitidas" : "facturas recibidas"}`;
+    `Importar ${tipoActual === "emitidas" ? "facturas emitidas" : "facturas recibidas"}`;
   const body = document.getElementById("modal-body");
 
   const campos = ["fecha", "numero", "contraparte", "tipoIva", "base", "cuota"];
-  if (tipo === "recibidas") campos.push("deducible");
+  if (tipoActual === "recibidas") campos.push("deducible");
 
   const labels = {
-    fecha: "Fecha", numero: "Nº factura", contraparte: tipo === "emitidas" ? "Cliente" : "Proveedor",
+    fecha: "Fecha", numero: "Nº factura", contraparte: tipoActual === "emitidas" ? "Cliente" : "Proveedor",
     tipoIva: "Tipo IVA", base: "Base", cuota: "Cuota", deducible: "% Deducible",
   };
 
@@ -1625,12 +1699,33 @@ function abrirModalConfirmacion({ headers, mapping, datos, tipo, tri, headerIdx 
     return a + (c !== 0 ? c : round2(b * parseFloat(t) / 100));
   }, 0);
 
+  const resumen = _resumenAnual(datos, mapping);
+  const yearsTxt = resumen.years.length ? resumen.years.join(", ") : "no detectado";
+  const periodosTxt = resumen.periodos.length ? resumen.periodos.join(", ") : "—";
+  const yearMismatch = resumen.years.length === 1 &&
+                       resumen.years[0] !== String(state.ejercicio);
+  const yearWarn = yearMismatch
+    ? `<div class="hint" style="background:var(--warn-bg);color:var(--warn);padding:8px 10px;border-radius:6px;margin-bottom:10px;">
+         ⚠ El archivo es del ejercicio <strong>${escapeHtml(resumen.years[0])}</strong> pero tu ejercicio activo es <strong>${state.ejercicio}</strong>.
+         <a href="#" id="lnk-cambiar-ejercicio" style="color:inherit;text-decoration:underline;">Cambiar a ${escapeHtml(resumen.years[0])}</a>.
+       </div>`
+    : "";
+
   body.innerHTML = `
+    ${yearWarn}
+    <div class="mapping-row" style="margin-bottom:12px;">
+      <label><strong>Tipo de libro</strong></label>
+      <select id="confirm-tipo-libro">
+        <option value="emitidas" ${tipoActual === "emitidas" ? "selected" : ""}>📤 Emitidas (ventas / clientes)</option>
+        <option value="recibidas" ${tipoActual === "recibidas" ? "selected" : ""}>📥 Recibidas (compras / proveedores)</option>
+      </select>
+    </div>
     <p class="preview-meta">
       Cabecera detectada en la fila <strong>${headerIdx + 1}</strong>.
       <strong>${datos.length}</strong> facturas. Total base: <strong>${fmt(totalBase)} €</strong>,
-      total cuota: <strong>${fmt(totalCuota)} €</strong>.
-      Cada factura se asignará al período (trimestre/mes) que corresponda según su fecha.
+      total cuota: <strong>${fmt(totalCuota)} €</strong>.<br>
+      Año(s): <strong>${escapeHtml(yearsTxt)}</strong>. Períodos cubiertos: <strong>${escapeHtml(periodosTxt)}</strong>.
+      Cada factura se asignará a su período según la fecha.
     </p>
     <ul style="margin:0 0 12px 16px;padding:0;font-size:13px;line-height:1.7;">${mapeoHtml}</ul>
     <h4 style="margin:6px 0;font-size:13px;">Vista previa (primeras 5):</h4>
@@ -1647,17 +1742,30 @@ function abrirModalConfirmacion({ headers, mapping, datos, tipo, tri, headerIdx 
   `;
   document.getElementById("modal-ok").textContent = `Importar ${datos.length} facturas`;
 
+  document.getElementById("confirm-tipo-libro").addEventListener("change", (e) => {
+    tipoActual = e.target.value;
+    document.getElementById("modal-title").textContent =
+      `Importar ${tipoActual === "emitidas" ? "facturas emitidas" : "facturas recibidas"}`;
+  });
+  const lnkY = document.getElementById("lnk-cambiar-ejercicio");
+  if (lnkY) lnkY.addEventListener("click", (e) => {
+    e.preventDefault();
+    state.ejercicio = parseInt(resumen.years[0], 10);
+    document.getElementById("ejercicio").value = state.ejercicio;
+    save();
+    e.target.closest(".hint").remove();
+  });
   const lnk = document.getElementById("lnk-ajustar-mapeo");
   lnk.addEventListener("click", (e) => {
     e.preventDefault();
     cerrarModal();
-    abrirModalMapeo({ headers, mapping, datos, tipo, tri });
+    abrirModalMapeo({ headers, mapping, datos, tipo: tipoActual, tri });
   });
 
   abrirModal(() => {
-    document.getElementById("modal-ok").textContent = "Aplicar"; // restablecer
-    const res = aplicarFilasAutomaticas(datos, mapping, tipo, tri);
-    autoRellenar303SiVacio(res.periodosTocados, tipo);
+    document.getElementById("modal-ok").textContent = "Aplicar";
+    const res = aplicarFilasAutomaticas(datos, mapping, tipoActual, tri);
+    autoRellenar303SiVacio(res.periodosTocados, tipoActual);
     save();
     renderLibros();
     if (periodKeys(state.modoDeclaracion).some((k) => k === periodo303Activo)) render303();
@@ -1665,7 +1773,7 @@ function abrirModalConfirmacion({ headers, mapping, datos, tipo, tri, headerIdx 
     const partes = Object.entries(res.porPeriodo)
       .map(([p, n]) => `${n} en ${periodLabel(p)}`).join(", ");
     const skip = res.saltadas ? ` · ${res.saltadas} sin importes` : "";
-    flash(`${res.total} facturas importadas (${partes || "sin reparto"})${skip}.`);
+    flash(`${res.total} facturas (${tipoActual}) importadas (${partes || "sin reparto"})${skip}.`);
     return true;
   });
 }
