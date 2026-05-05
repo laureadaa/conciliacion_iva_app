@@ -1295,7 +1295,96 @@ function importarLibroDesdeFilas(filas, tipo, tri) {
   const datos = filas.slice(headerIdx + 1)
     .filter((r) => r.some((c) => c !== "" && c != null));
 
+  // Si la auto-detección cubre lo mínimo (fecha + base o cuota), importamos
+  // directamente repartiendo cada factura al período (trimestre/mes) que
+  // corresponda según su fecha. El usuario no necesita pasar por el modal
+  // de mapeo cuando la cabecera es estándar.
+  const tieneFecha = mapping.fecha != null;
+  const tieneImporte = mapping.base != null || mapping.cuota != null;
+  if (tieneFecha && tieneImporte && datos.length) {
+    const res = aplicarFilasAutomaticas(datos, mapping, tipo, tri);
+    autoRellenar303SiVacio(res.periodosTocados, tipo);
+    save();
+    renderLibros();
+    if (periodKeys(state.modoDeclaracion).some((k) => k === periodo303Activo)) render303();
+    renderResultados();
+    const partes = Object.entries(res.porPeriodo)
+      .map(([p, n]) => `${n} en ${periodLabel(p)}`).join(", ");
+    flash(`${res.total} facturas importadas (${partes || "sin reparto"}).`);
+    return;
+  }
+  // Fallback: detección incompleta → pedir mapeo manual.
   abrirModalMapeo({ headers, mapping, datos, tipo, tri });
+}
+
+/* Reparte las facturas en buckets por período usando la fecha de cada fila.
+   Si el modo es trimestral, calcula el trimestre desde el mes; si es mensual,
+   usa el mes directamente. Las filas sin fecha válida caen al período activo. */
+function periodoDesdeFecha(fechaIso) {
+  if (!fechaIso) return null;
+  const m = String(fechaIso).match(/^(\d{4})-(\d{1,2})-/);
+  if (!m) return null;
+  const mes = parseInt(m[2], 10);
+  if (!(mes >= 1 && mes <= 12)) return null;
+  if (state.modoDeclaracion === "mensual") return String(mes).padStart(2, "0");
+  return TRIMESTRES[Math.floor((mes - 1) / 3)];
+}
+
+function aplicarFilasAutomaticas(datos, mapping, tipo, triFallback) {
+  const porPeriodo = {};
+  const periodosTocados = new Set();
+  let total = 0;
+  datos.forEach((r) => {
+    const get = (k) => mapping[k] != null ? r[mapping[k]] : "";
+    const tipoIva = normalizarTipoIva(get("tipoIva") || "21");
+    const base = num(get("base"));
+    let cuota = num(get("cuota"));
+    if (cuota === 0 && base !== 0) cuota = round2(base * parseFloat(tipoIva) / 100);
+    if (base === 0 && cuota === 0) return;
+    const fecha = parseFecha(get("fecha"));
+    const pk = periodoDesdeFecha(fecha) || triFallback;
+    const fila = {
+      fecha,
+      numero: String(get("numero") ?? ""),
+      contraparte: String(get("contraparte") ?? ""),
+      tipoIva, base, cuota,
+    };
+    if (tipo === "recibidas") {
+      const ded = num(get("deducible"));
+      fila.deducible = ded === 0 ? 100 : ded;
+    }
+    bucket(pk)[tipo].push(fila);
+    porPeriodo[pk] = (porPeriodo[pk] || 0) + 1;
+    periodosTocados.add(pk);
+    total++;
+  });
+  return { total, porPeriodo, periodosTocados };
+}
+
+/* Tras importar libros, rellena las casillas del 303 que estén a 0. No pisa
+   nada que el usuario haya tecleado a mano. Solo afecta a las casillas que
+   pueden derivarse del libro recién importado (devengado en emitidas o
+   deducible/REAGYP en recibidas). */
+function autoRellenar303SiVacio(periodos, tipo) {
+  for (const pk of periodos) {
+    const m = bucket(pk).m303;
+    const emit = totalesLibroEmitidasPorTipo(pk);
+    const reci = totalesLibroRecibidasPorTipo(pk);
+    if (tipo === "emitidas") {
+      if (num(m.b21) === 0) m.b21 = round2(emit[21].base);
+      if (num(m.c21) === 0) m.c21 = round2(emit[21].cuota);
+      if (num(m.b10) === 0) m.b10 = round2(emit[10].base);
+      if (num(m.c10) === 0) m.c10 = round2(emit[10].cuota);
+      if (num(m.b4)  === 0) m.b4  = round2(emit[4].base);
+      if (num(m.c4)  === 0) m.c4  = round2(emit[4].cuota);
+    } else {
+      const baseDed = round2(reci[21].base + reci[10].base + reci[4].base);
+      const cuotaDed = round2(reci[21].cuota + reci[10].cuota + reci[4].cuota);
+      if (num(m.b_ded_corr) === 0) m.b_ded_corr = baseDed;
+      if (num(m.c_ded_corr) === 0) m.c_ded_corr = cuotaDed;
+      if (num(m.c_reagyp) === 0) m.c_reagyp = round2(totalReagypTrimestre(pk));
+    }
+  }
 }
 
 function abrirModalMapeo({ headers, mapping, datos, tipo, tri }) {
