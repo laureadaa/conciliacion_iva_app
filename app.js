@@ -25,6 +25,7 @@ const empty303 = () => ({
   b_ded_inv: 0, c_ded_inv: 0,
   b_ded_intra: 0, c_ded_intra: 0,
   c_reagyp: 0,
+  c78: 0, // cuotas a compensar de períodos anteriores
 });
 
 const defaultState = () => ({
@@ -43,9 +44,21 @@ const defaultState = () => ({
 });
 
 let state = mergeState(load(), defaultState());
-let triLibroActivo = 1;
-let tri303Activo = 1;
-let triResultActivo = 1;
+const TRI_PREF_KEY = "iva-conciliacion-tri-activo";
+const _triPref = (() => {
+  try { return JSON.parse(localStorage.getItem(TRI_PREF_KEY)) || {}; }
+  catch { return {}; }
+})();
+let triLibroActivo = _triPref.libro || 1;
+let tri303Activo = _triPref.m303 || 1;
+let triResultActivo = _triPref.result || 1;
+function persistTri() {
+  try {
+    localStorage.setItem(TRI_PREF_KEY, JSON.stringify({
+      libro: triLibroActivo, m303: tri303Activo, result: triResultActivo,
+    }));
+  } catch {}
+}
 
 /* Profundo: rellena campos nuevos sin perder datos guardados */
 function mergeState(saved, def) {
@@ -128,6 +141,7 @@ function buildTrimesterSwitches() {
       if (name === "tri-libro") { triLibroActivo = v; renderLibros(); }
       else if (name === "tri-303") { tri303Activo = v; render303(); }
       else if (name === "tri-result") { triResultActivo = v; renderResultados(); }
+      persistTri();
     });
   });
 }
@@ -172,6 +186,57 @@ document.getElementById("ejercicio").addEventListener("input", (e) => {
 
 document.getElementById("btn-export").addEventListener("click", exportarInformeExcel);
 
+/* ---------- Volcar libros del trimestre activo a las casillas del 303 ---------- */
+document.getElementById("btn-303-desde-libro").addEventListener("click", () => {
+  const tri = tri303Activo;
+  if (!confirm(`Se sustituirán las casillas del Modelo 303 del ${tri}T por los totales del libro de ese trimestre. ¿Continuar?`)) return;
+  const emit = totalesLibroEmitidasPorTipo(tri);
+  const reci = totalesLibroRecibidasPorTipo(tri);
+  const reagyp = totalReagypTrimestre(tri);
+  const m = state.trimestres[tri].m303;
+  m.b21 = round2(emit[21].base);  m.c21 = round2(emit[21].cuota);
+  m.b10 = round2(emit[10].base);  m.c10 = round2(emit[10].cuota);
+  m.b4  = round2(emit[4].base);   m.c4  = round2(emit[4].cuota);
+  // Deducible se vuelca a "corriente" por defecto; el usuario puede repartir entre 28/30/36 manualmente
+  m.b_ded_corr = round2(reci[21].base + reci[10].base + reci[4].base);
+  m.c_ded_corr = round2(reci[21].cuota + reci[10].cuota + reci[4].cuota);
+  m.c_reagyp = round2(reagyp);
+  render303();
+  save();
+  flash(`Casillas del 303 ${tri}T rellenadas desde libros.`);
+});
+
+/* ---------- Export / Import JSON ---------- */
+document.getElementById("btn-export-json").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `conciliacion_iva_${state.entidad.nif || "datos"}_${state.ejercicio}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  flash("Copia de seguridad descargada.");
+});
+document.getElementById("imp-json").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  try {
+    const txt = await f.text();
+    const parsed = JSON.parse(txt);
+    if (!parsed || !parsed.trimestres) throw new Error("Formato no reconocido");
+    if (!confirm("Esto sobrescribirá los datos actuales. ¿Continuar?")) return;
+    state = mergeState(parsed, defaultState());
+    save();
+    renderTodo();
+    flash("Datos importados.");
+  } catch (err) {
+    flash("Error importando JSON: " + err.message);
+  }
+});
+
 document.getElementById("presenta-390").addEventListener("change", (e) => {
   state.presenta390 = e.target.checked;
   document.getElementById("m390-form").style.opacity = state.presenta390 ? "1" : ".4";
@@ -192,6 +257,7 @@ function renderTablaFacturas(tipo, filas) {
   tbody.innerHTML = "";
   filas.forEach((f, i) => {
     const tr = document.createElement("tr");
+    tr.dataset.row = i;
     tr.innerHTML = `
       <td><input type="date" value="${f.fecha}" data-i="${i}" data-k="fecha"></td>
       <td><input type="text" value="${escapeHtml(f.numero)}" data-i="${i}" data-k="numero"></td>
@@ -208,6 +274,7 @@ function renderTablaFacturas(tipo, filas) {
         : ""}
       <td><button class="row-del" data-del="${i}" data-tipo="${tipo}" title="Eliminar">×</button></td>
     `;
+    aplicarValidacionFila(tr, f);
     tbody.appendChild(tr);
   });
 
@@ -231,6 +298,9 @@ function renderTablaFacturas(tipo, filas) {
       }
       renderTotalesTipo();
       actualizarFooterTabla(tipo);
+      // Re-evaluamos la validación de la fila (cuota vs base × tipo)
+      const tr = e.target.closest("tr");
+      if (tr) aplicarValidacionFila(tr, filas[i]);
       autoSave();
     });
   });
@@ -245,6 +315,26 @@ function renderTablaFacturas(tipo, filas) {
   });
 
   actualizarFooterTabla(tipo);
+}
+
+/* Marca una fila de libro cuando la cuota no encaja con base × tipo (>1 cent).
+   Útil para detectar errores de tecleo o de codificación de tipo IVA. */
+function aplicarValidacionFila(tr, fila) {
+  const tasa = parseFloat(fila.tipoIva) / 100;
+  const base = num(fila.base);
+  const cuota = num(fila.cuota);
+  const esperada = round2(base * tasa);
+  // Solo marcamos si hay datos suficientes; permitimos rectificativas (cuota negativa)
+  // pero exigimos que el ratio cuadre.
+  const desviacion = Math.abs(cuota - esperada);
+  const tieneDatos = base !== 0 || cuota !== 0;
+  const noCuadra = tieneDatos && desviacion > 0.01 && tasa > 0;
+  tr.classList.toggle("row-warn", noCuadra);
+  if (noCuadra) {
+    tr.title = `Cuota esperada según tipo ${fila.tipoIva} %: ${fmt(esperada)} (diferencia ${fmt(cuota - esperada)})`;
+  } else {
+    tr.removeAttribute("title");
+  }
 }
 
 function actualizarFooterTabla(tipo) {
@@ -299,10 +389,78 @@ function actualizarResumen303() {
   // Casilla 45 = total a deducir; la compensación REAGYP (41) se SUMA aquí
   const ded = num(m.c_ded_corr) + num(m.c_ded_inv) + num(m.c_ded_intra) + num(m.c_reagyp);
   const res = dev - ded; // casilla 46
+  // Casilla 71 (resultado a ingresar/devolver) = 46 − 78 (compensación anteriores), simplificado
+  const c71 = res - num(m.c78);
   document.getElementById("r303-dev").textContent = fmt(dev);
   document.getElementById("r303-ded").textContent = fmt(ded);
   document.getElementById("r303-res").textContent = fmt(res);
-  document.getElementById("r303-71").textContent = fmt(res);
+  const el78 = document.getElementById("r303-78");
+  if (el78) el78.textContent = fmt(num(m.c78));
+  document.getElementById("r303-71").textContent = fmt(c71);
+  renderResumenAnual303();
+}
+
+function renderResumenAnual303() {
+  const t = document.getElementById("resumen-anual-303");
+  if (!t) return;
+  const sum = (k) => num(state.trimestres[1].m303[k]) + num(state.trimestres[2].m303[k]) +
+                     num(state.trimestres[3].m303[k]) + num(state.trimestres[4].m303[k]);
+  const filas = [
+    ["Cuota devengada 21 % (03)", sum("c21")],
+    ["Cuota devengada 10 % (06)", sum("c10")],
+    ["Cuota devengada 4 % (09)", sum("c4")],
+    ["Cuota intracom. (11)", sum("c_intra")],
+    ["Cuota ISP (13)", sum("c_isp")],
+    ["Σ Total devengado (27)", sum("c21") + sum("c10") + sum("c4") + sum("c_intra") + sum("c_isp")],
+    ["Cuota deducible corriente (29)", sum("c_ded_corr")],
+    ["Cuota deducible inversión (31)", sum("c_ded_inv")],
+    ["Cuota deducible intracom. (37)", sum("c_ded_intra")],
+    ["Compensación REAGYP (41)", sum("c_reagyp")],
+    ["Σ Total deducible (45)", sum("c_ded_corr") + sum("c_ded_inv") + sum("c_ded_intra") + sum("c_reagyp")],
+    ["Σ Casillas 71 (resultado anual)",
+      (sum("c21") + sum("c10") + sum("c4") + sum("c_intra") + sum("c_isp")) -
+      (sum("c_ded_corr") + sum("c_ded_inv") + sum("c_ded_intra") + sum("c_reagyp")) - sum("c78")],
+  ];
+  t.innerHTML = `
+    <thead><tr><th>Concepto</th>
+      <th class="num">1T</th><th class="num">2T</th><th class="num">3T</th><th class="num">4T</th>
+      <th class="num">Total anual</th></tr></thead>
+    <tbody>
+      ${filas.map(([c, total]) => {
+        const detallesPorTri = [1, 2, 3, 4].map((tri) => {
+          const cells = {
+            "Cuota devengada 21 % (03)": "c21",
+            "Cuota devengada 10 % (06)": "c10",
+            "Cuota devengada 4 % (09)": "c4",
+            "Cuota intracom. (11)": "c_intra",
+            "Cuota ISP (13)": "c_isp",
+            "Cuota deducible corriente (29)": "c_ded_corr",
+            "Cuota deducible inversión (31)": "c_ded_inv",
+            "Cuota deducible intracom. (37)": "c_ded_intra",
+            "Compensación REAGYP (41)": "c_reagyp",
+          };
+          const m = state.trimestres[tri].m303;
+          if (cells[c]) return num(m[cells[c]]);
+          if (c === "Σ Total devengado (27)")
+            return num(m.c21) + num(m.c10) + num(m.c4) + num(m.c_intra) + num(m.c_isp);
+          if (c === "Σ Total deducible (45)")
+            return num(m.c_ded_corr) + num(m.c_ded_inv) + num(m.c_ded_intra) + num(m.c_reagyp);
+          if (c === "Σ Casillas 71 (resultado anual)") {
+            const dev = num(m.c21) + num(m.c10) + num(m.c4) + num(m.c_intra) + num(m.c_isp);
+            const ded = num(m.c_ded_corr) + num(m.c_ded_inv) + num(m.c_ded_intra) + num(m.c_reagyp);
+            return dev - ded - num(m.c78);
+          }
+          return 0;
+        });
+        const fuerte = c.startsWith("Σ");
+        return `<tr${fuerte ? ' style="font-weight:600;background:#fafbfd;"' : ""}>
+          <td>${c}</td>
+          ${detallesPorTri.map((v) => `<td class="num">${fmt(v)}</td>`).join("")}
+          <td class="num"><strong>${fmt(total)}</strong></td>
+        </tr>`;
+      }).join("")}
+    </tbody>
+  `;
 }
 
 /* ---------- Render: Modelo 390 ---------- */

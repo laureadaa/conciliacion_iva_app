@@ -215,6 +215,12 @@ main { padding: 20px 24px 60px; max-width: 1600px; margin: 0 auto; }
   font-weight: 600;
   border-top: 2px solid var(--border);
 }
+.data-table tr.row-warn td {
+  background: var(--warn-bg);
+}
+.data-table tr.row-warn td:first-child {
+  border-left: 3px solid var(--warn);
+}
 
 .totales-tipo {
   margin-top: 10px;
