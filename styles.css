@@ -374,10 +374,33 @@ label.btn { display: inline-block; }
 }
 .dropzone.universal {
   margin: 0;
-  padding: 18px 24px;
-  font-size: 14px;
+  padding: 28px 24px;
+  font-size: 15px;
 }
-.dropzone.universal strong { font-size: 15px; }
+.dropzone.universal strong { font-size: 17px; }
+.dropzone.universal span { font-size: 12px; }
+
+.card.big-drop { padding: 20px; }
+
+.simple-toolbar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 12px;
+  margin-top: 10px;
+}
+.simple-toolbar .btn { font-size: 12px; padding: 4px 10px; }
+
+.iva-resumen-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.iva-resumen-table th, .iva-resumen-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.iva-resumen-table th { background: #fafbfd; font-weight: 600; font-size: 12px; text-align: left; color: var(--muted); }
+.iva-resumen-table th.num, .iva-resumen-table td.num { text-align: right; font-family: ui-monospace, SFMono-Regular, monospace; }
+.iva-resumen-table tr.fila-resultado td { background: var(--beige-claro); font-weight: 700; font-size: 14px; }
+.iva-resumen-table tr.fila-resultado td:not(:first-child) { color: var(--primary); }
 .status-bar {
   display: flex;
   gap: 14px;

@@ -17,34 +17,20 @@
 <header class="topbar">
   <div class="brand">
     <h1>Conciliación del IVA</h1>
-    <span class="subtitle">Contabilidad ↔ Libros ↔ Modelo 303 ↔ Modelo 390</span>
   </div>
   <div class="actions">
     <label class="year">
       Ejercicio
       <input id="ejercicio" type="number" min="2000" max="2099" value="2025" />
     </label>
-    <button id="btn-ejemplo" class="btn ghost" type="button">Cargar ejemplo</button>
-    <label class="btn ghost" for="imp-json" title="Importar copia de seguridad JSON">📂 Importar</label>
+    <button id="btn-toggle-tabs" class="btn ghost" type="button" title="Mostrar pestañas avanzadas">⚙ Vista detallada</button>
     <input id="imp-json" type="file" accept="application/json,.json" hidden />
-    <button id="btn-export-json" class="btn ghost" type="button" title="Exportar copia de seguridad JSON">💾 Exportar</button>
-    <button id="btn-limpiar" class="btn ghost" type="button">Limpiar</button>
-    <button id="btn-guardar" class="btn primary" type="button">Guardar</button>
   </div>
 </header>
 
-<!-- Zona universal: cualquier libro o modelo, la app detecta qué es -->
-<section class="universal-bar">
-  <label class="dropzone universal" for="imp-universal">
-    <strong>📥 Suelta aquí cualquier libro o modelo (Excel · CSV · PDF)</strong>
-    <span>La app detecta automáticamente si es libro de ventas/compras o Modelo 303/390 y lo procesa solo.</span>
-  </label>
-  <input id="imp-universal" type="file" accept=".xlsx,.xls,.csv,application/pdf" multiple hidden />
-  <div id="status-bar" class="status-bar"></div>
-</section>
-
-<nav class="tabs" role="tablist">
-  <button class="tab active" data-tab="entidad" role="tab">0. Entidad</button>
+<nav class="tabs" role="tablist" hidden>
+  <button class="tab active" data-tab="inicio" role="tab">🏠 Inicio</button>
+  <button class="tab" data-tab="entidad" role="tab">0. Entidad</button>
   <button class="tab" data-tab="libros" role="tab">1. Libros de IVA</button>
   <button class="tab" data-tab="m303" role="tab">2. Modelo 303</button>
   <button class="tab" data-tab="m390" role="tab">3. Modelo 390</button>
@@ -54,8 +40,33 @@
 </nav>
 
 <main>
+  <!-- ============== INICIO (vista simple por defecto) ============== -->
+  <section class="panel active" id="tab-inicio">
+    <div class="card big-drop">
+      <label class="dropzone universal" for="imp-universal">
+        <strong>📥 Suelta aquí tus libros o modelos</strong>
+        <span>Excel/CSV de libros (ventas o compras) · PDF del Modelo 303/390 · La app lo procesa solo.</span>
+      </label>
+      <input id="imp-universal" type="file" accept=".xlsx,.xls,.csv,application/pdf" multiple hidden />
+      <div id="status-bar" class="status-bar"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 12px;font-size:16px;">Resumen del IVA</h2>
+      <table class="recon-table" id="resumen-iva-simple"></table>
+      <div id="conciliacion-simple"></div>
+    </div>
+
+    <div class="simple-toolbar">
+      <button id="btn-ejemplo" class="btn ghost" type="button">Cargar ejemplo</button>
+      <button id="btn-export-json" class="btn ghost" type="button">💾 Exportar copia</button>
+      <label class="btn ghost" for="imp-json">📂 Importar copia</label>
+      <button id="btn-guardar" class="btn ghost" type="button" style="display:none;">Guardar</button>
+      <button id="btn-limpiar" class="btn ghost" type="button">🗑 Limpiar todo</button>
+    </div>
+  </section>
   <!-- ============== ENTIDAD ============== -->
-  <section class="panel active" id="tab-entidad">
+  <section class="panel" id="tab-entidad">
     <div class="panel-head">
       <h2>Datos de la entidad</h2>
       <p>Información de cabecera para el informe de conciliación.</p>

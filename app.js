@@ -216,7 +216,25 @@ document.querySelectorAll(".tab").forEach((t) => {
     t.classList.add("active");
     document.getElementById("tab-" + t.dataset.tab).classList.add("active");
     if (t.dataset.tab === "result") renderResultados();
+    if (t.dataset.tab === "inicio") renderInicio();
   });
+});
+
+/* Toggle "Vista detallada" — muestra/oculta la barra de pestañas avanzadas */
+const _btnToggleTabs = document.getElementById("btn-toggle-tabs");
+if (_btnToggleTabs) _btnToggleTabs.addEventListener("click", () => {
+  const tabs = document.querySelector("nav.tabs");
+  const oculto = tabs.hasAttribute("hidden");
+  if (oculto) {
+    tabs.removeAttribute("hidden");
+    _btnToggleTabs.textContent = "🏠 Vista simple";
+  } else {
+    tabs.setAttribute("hidden", "");
+    _btnToggleTabs.textContent = "⚙ Vista detallada";
+    // Volver a la vista simple
+    const inicio = document.querySelector('.tab[data-tab="inicio"]');
+    if (inicio) inicio.click();
+  }
 });
 
 /* ---------- Selectores período (dinámicos) ---------- */
@@ -686,6 +704,120 @@ function calcularRiesgo() {
            dDed: round2(dedLibro - ded303), dReagyp: round2(reagypLib - reagyp303) };
 }
 
+/* ---------- Render: pestaña Inicio (vista simple) ----------
+   Muestra de un vistazo el IVA por período y anual, el resultado a
+   ingresar/devolver y, si hay 303 / contabilidad, las diferencias. */
+function renderInicio() {
+  const t = document.getElementById("resumen-iva-simple");
+  if (!t) return;
+  const keys = periodKeys(state.modoDeclaracion);
+  const periodLabelHdr = state.modoDeclaracion === "mensual"
+    ? keys.map((k) => NOMBRE_MES[parseInt(k, 10)].slice(0, 3))
+    : keys;
+
+  // Totales del libro por período
+  const filas = [
+    { c: "IVA Repercutido (ventas)", calc: (pk) => {
+        const e = totalesLibroEmitidasPorTipo(pk);
+        return e[21].cuota + e[10].cuota + e[4].cuota; }},
+    { c: "IVA Soportado (compras)", calc: (pk) => {
+        const r = totalesLibroRecibidasPorTipo(pk);
+        return r[21].cuota + r[10].cuota + r[4].cuota; }},
+    { c: "Resultado (a ingresar / a devolver)", clase: "fila-resultado", calc: (pk) => {
+        const e = totalesLibroEmitidasPorTipo(pk);
+        const r = totalesLibroRecibidasPorTipo(pk);
+        return (e[21].cuota + e[10].cuota + e[4].cuota) -
+               (r[21].cuota + r[10].cuota + r[4].cuota); }},
+  ];
+  const totales = filas.map((f) => keys.reduce((a, pk) => a + f.calc(pk), 0));
+
+  t.className = "iva-resumen-table";
+  t.innerHTML = `
+    <thead><tr>
+      <th>Concepto</th>
+      ${keys.map((k, i) => `<th class="num">${escapeHtml(periodLabelHdr[i])}</th>`).join("")}
+      <th class="num">Total ${state.ejercicio}</th>
+    </tr></thead>
+    <tbody>
+      ${filas.map((f, i) => {
+        const cells = keys.map((pk) => `<td class="num">${fmt(f.calc(pk))}</td>`).join("");
+        return `<tr${f.clase ? ` class="${f.clase}"` : ""}>
+          <td>${escapeHtml(f.c)}</td>
+          ${cells}
+          <td class="num"><strong>${fmt(totales[i])}</strong></td>
+        </tr>`;
+      }).join("")}
+    </tbody>
+  `;
+
+  renderConciliacionSimple();
+}
+
+function renderConciliacionSimple() {
+  const cont = document.getElementById("conciliacion-simple");
+  if (!cont) return;
+  // ¿Hay datos de 303 o contabilidad para conciliar?
+  const tiene303 = todosLosBuckets().some((b) => {
+    const m = b.m303;
+    return num(m.c21) + num(m.c10) + num(m.c4) +
+           num(m.c_ded_corr) + num(m.c_ded_inv) + num(m.c_ded_intra) !== 0;
+  });
+  const tieneCont = num(state.contab.c477) || num(state.contab.c472) ||
+                    num(state.contab.c4750) || num(state.contab.c4700);
+  if (!tiene303 && !tieneCont) {
+    cont.innerHTML = `<p class="hint" style="margin-top:14px;">
+      Para ver la <strong>conciliación</strong>, sube también tus PDFs del Modelo 303
+      (y opcionalmente del 390) o introduce los saldos contables 477/472 en la vista detallada.
+    </p>`;
+    return;
+  }
+  let html = "";
+  if (tiene303) {
+    const r = calcularRiesgo();
+    const cls = r.nivel === "BAJO" ? "ok" : r.nivel === "MODERADO" ? "warn" : "err";
+    html += `
+      <h3 style="margin:18px 0 8px;font-size:14px;">Libros ↔ Modelo 303 (anual)</h3>
+      <div class="risk-grid">
+        <div class="risk-item"><span class="risk-label">Estado</span>
+          <span class="badge ${cls} big">${r.nivel}</span></div>
+        <div class="risk-item"><span class="risk-label">Diferencia devengado</span>
+          <strong>${fmt(r.dDev)} €</strong></div>
+        <div class="risk-item"><span class="risk-label">Diferencia deducible</span>
+          <strong>${fmt(r.dDed)} €</strong></div>
+        <div class="risk-item"><span class="risk-label">Desviación global</span>
+          <strong>${r.pct.toFixed(2)} %</strong></div>
+      </div>`;
+  }
+  if (tieneCont) {
+    const dev = totalLibroDevengadoAnual();
+    const ded = totalLibroDeducibleAnual();
+    const c = state.contab;
+    const dif477 = round2(dev - num(c.c477));
+    const dif472 = round2(ded - num(c.c472));
+    const cls = (Math.abs(dif477) < 1 && Math.abs(dif472) < 1) ? "ok" : "warn";
+    html += `
+      <h3 style="margin:18px 0 8px;font-size:14px;">Libros ↔ Contabilidad (anual)</h3>
+      <table class="recon-table">
+        <thead><tr><th>Cuenta</th><th class="num">Libro</th><th class="num">Contabilidad</th><th class="num">Diferencia</th></tr></thead>
+        <tbody>
+          <tr class="${Math.abs(dif477) < 1 ? "ok" : "warn"}">
+            <td>477 IVA repercutido</td>
+            <td class="num">${fmt(dev)}</td>
+            <td class="num">${fmt(c.c477)}</td>
+            <td class="num">${fmt(dif477)}</td>
+          </tr>
+          <tr class="${Math.abs(dif472) < 1 ? "ok" : "warn"}">
+            <td>472 IVA soportado</td>
+            <td class="num">${fmt(ded)}</td>
+            <td class="num">${fmt(c.c472)}</td>
+            <td class="num">${fmt(dif472)}</td>
+          </tr>
+        </tbody>
+      </table>`;
+  }
+  cont.innerHTML = html;
+}
+
 /* ---------- Render: Resultados ---------- */
 function renderResultados() {
   renderRiesgo();
@@ -1076,6 +1208,7 @@ function renderTodo() {
   render390();
   renderContab();
   renderResultados();
+  renderInicio();
 }
 
 /* ---------- Helpers ---------- */
@@ -2614,9 +2747,9 @@ function refrescarBarraEstado() {
   });
 }
 
-// Refrescar la barra en cada save() y en cada render global.
+// Refrescar la barra y el resumen Inicio en cada save() y en cada render global.
 const _save_orig = save;
-save = function () { _save_orig(); refrescarBarraEstado(); };
+save = function () { _save_orig(); refrescarBarraEstado(); renderInicio(); };
 const _renderTodo_orig = renderTodo;
 renderTodo = function () { _renderTodo_orig(); refrescarBarraEstado(); };
 
