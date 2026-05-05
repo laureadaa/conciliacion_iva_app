@@ -96,64 +96,89 @@
     <div class="grid two">
       <div class="card">
         <header>
-          <h3>Facturas emitidas (IVA devengado)</h3>
+          <h3>📤 Libro de Ventas — Facturas emitidas (IVA devengado)</h3>
           <div class="header-actions">
-            <label class="btn small" for="imp-emitidas-xlsx">Importar Excel/CSV</label>
-            <input id="imp-emitidas-xlsx" type="file" accept=".xlsx,.xls,.csv" hidden />
-            <label class="btn small" for="imp-emitidas-pdf">Importar PDF</label>
-            <input id="imp-emitidas-pdf" type="file" accept="application/pdf" hidden />
-            <button class="btn small" data-add="emitidas" type="button">+ Añadir</button>
+            <button class="btn small" data-add="emitidas" type="button">+ Añadir factura</button>
           </div>
         </header>
-        <table class="data-table" id="tbl-emitidas">
-          <thead>
-            <tr>
-              <th>Fecha</th><th>Nº factura</th><th>Cliente</th>
-              <th>Tipo IVA</th><th class="num">Base</th><th class="num">Cuota</th><th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4">Total trimestre</td>
-              <td class="num" id="tot-emitidas-base">0,00</td>
-              <td class="num" id="tot-emitidas-cuota">0,00</td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
+        <label class="dropzone" for="imp-emitidas-xlsx">
+          <strong>📥 Sube aquí tu Libro de Ventas (Excel / CSV)</strong>
+          <span>Arrastra el archivo o haz clic para seleccionarlo</span>
+        </label>
+        <input id="imp-emitidas-xlsx" type="file" accept=".xlsx,.xls,.csv" hidden />
+        <label class="dropzone secondary" for="imp-emitidas-pdf">
+          <strong>📄 ...o sube un PDF del Libro de Ventas</strong>
+          <span>Detección automática (best-effort)</span>
+        </label>
+        <input id="imp-emitidas-pdf" type="file" accept="application/pdf" hidden />
+        <div class="table-scroll">
+          <table class="data-table" id="tbl-emitidas">
+            <colgroup>
+              <col class="col-fecha"><col class="col-num"><col class="col-contraparte">
+              <col class="col-tipo"><col class="col-base"><col class="col-cuota"><col class="col-del">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Fecha</th><th>Nº factura</th><th>Cliente</th>
+                <th>Tipo IVA</th><th class="num">Base</th><th class="num">Cuota</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4">Total trimestre</td>
+                <td class="num" id="tot-emitidas-base">0,00</td>
+                <td class="num" id="tot-emitidas-cuota">0,00</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
         <div class="totales-tipo" id="tot-emitidas-tipo"></div>
       </div>
 
       <div class="card">
         <header>
-          <h3>Facturas recibidas (IVA soportado deducible)</h3>
+          <h3>📥 Libro de Compras — Facturas recibidas (IVA soportado deducible)</h3>
           <div class="header-actions">
-            <label class="btn small" for="imp-recibidas-xlsx">Importar Excel/CSV</label>
-            <input id="imp-recibidas-xlsx" type="file" accept=".xlsx,.xls,.csv" hidden />
-            <label class="btn small" for="imp-recibidas-pdf">Importar PDF</label>
-            <input id="imp-recibidas-pdf" type="file" accept="application/pdf" hidden />
-            <button class="btn small" data-add="recibidas" type="button">+ Añadir</button>
+            <button class="btn small" data-add="recibidas" type="button">+ Añadir factura</button>
           </div>
         </header>
-        <table class="data-table" id="tbl-recibidas">
-          <thead>
-            <tr>
-              <th>Fecha</th><th>Nº factura</th><th>Proveedor</th>
-              <th>Tipo IVA</th><th class="num">Base</th><th class="num">Cuota</th>
-              <th>Deducible</th><th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4">Total trimestre</td>
-              <td class="num" id="tot-recibidas-base">0,00</td>
-              <td class="num" id="tot-recibidas-cuota">0,00</td>
-              <td colspan="2"></td>
-            </tr>
-          </tfoot>
-        </table>
+        <label class="dropzone" for="imp-recibidas-xlsx">
+          <strong>📥 Sube aquí tu Libro de Compras (Excel / CSV)</strong>
+          <span>Arrastra el archivo o haz clic para seleccionarlo</span>
+        </label>
+        <input id="imp-recibidas-xlsx" type="file" accept=".xlsx,.xls,.csv" hidden />
+        <label class="dropzone secondary" for="imp-recibidas-pdf">
+          <strong>📄 ...o sube un PDF del Libro de Compras</strong>
+          <span>Detección automática (best-effort)</span>
+        </label>
+        <input id="imp-recibidas-pdf" type="file" accept="application/pdf" hidden />
+        <div class="table-scroll">
+          <table class="data-table" id="tbl-recibidas">
+            <colgroup>
+              <col class="col-fecha"><col class="col-num"><col class="col-contraparte">
+              <col class="col-tipo"><col class="col-base"><col class="col-cuota">
+              <col class="col-deducible"><col class="col-del">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Fecha</th><th>Nº factura</th><th>Proveedor</th>
+                <th>Tipo IVA</th><th class="num">Base</th><th class="num">Cuota</th>
+                <th>Deducible</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4">Total trimestre</td>
+                <td class="num" id="tot-recibidas-base">0,00</td>
+                <td class="num" id="tot-recibidas-cuota">0,00</td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
         <div class="totales-tipo" id="tot-recibidas-tipo"></div>
       </div>
     </div>

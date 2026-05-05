@@ -82,7 +82,7 @@ html, body {
 .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
 .tab:hover { color: var(--text); }
 
-main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
+main { padding: 20px 24px 60px; max-width: 1600px; margin: 0 auto; }
 
 .panel { display: none; }
 .panel.active { display: block; }
@@ -106,7 +106,7 @@ main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
 .grid.two { grid-template-columns: 1fr 1fr; }
 @media (max-width: 1100px) { .grid.two { grid-template-columns: 1fr; } }
 
-.grid.casillas { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.grid.casillas { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 
 .casilla-group {
   background: #fafbfd;
@@ -129,14 +129,19 @@ main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
   font-size: 12px;
 }
 .casilla-row span { color: var(--muted); }
-.casilla-row input {
-  width: 130px;
-  padding: 4px 6px;
+.casilla-row input,
+.casilla-row select {
+  width: 170px;
+  padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
   text-align: right;
   font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 13px;
 }
+.casilla-row input[type="text"],
+.casilla-row input[type="month"] { text-align: left; font-family: inherit; }
+.casilla-row select { text-align: left; font-family: inherit; }
 .casilla-row input:disabled { background: #f1f5f9; color: var(--muted); }
 
 .trimester-switch {
@@ -158,26 +163,44 @@ main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
 .trimester-switch label:has(input:checked) { background: var(--primary); color: white; }
 .trimester-switch input { display: none; }
 
+.table-scroll {
+  overflow-x: auto;
+  margin: 0 -4px;
+}
 .data-table, .recon-table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
 }
 .data-table th, .data-table td,
 .recon-table th, .recon-table td {
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);
   text-align: left;
+  vertical-align: middle;
 }
 .data-table th { background: #fafbfd; font-weight: 600; font-size: 12px; color: var(--muted); }
+.data-table col.col-fecha { width: 130px; }
+.data-table col.col-num { width: 110px; }
+.data-table col.col-contraparte { width: auto; min-width: 180px; }
+.data-table col.col-tipo { width: 80px; }
+.data-table col.col-base { width: 110px; }
+.data-table col.col-cuota { width: 110px; }
+.data-table col.col-deducible { width: 80px; }
+.data-table col.col-del { width: 36px; }
 .data-table td input, .data-table td select {
   width: 100%;
+  min-width: 0;
   border: 1px solid transparent;
   padding: 4px 6px;
   border-radius: 4px;
   font-size: 13px;
   background: transparent;
+  text-overflow: ellipsis;
 }
+.data-table td input[type="text"] { font-size: 12px; }
 .data-table td input:focus, .data-table td select:focus {
   border-color: var(--primary);
   background: white;
@@ -318,3 +341,25 @@ label.btn { display: inline-block; }
 .risk-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .risk-item strong { font-size: 16px; font-family: ui-monospace, SFMono-Regular, monospace; }
 .badge.big { font-size: 14px; padding: 4px 14px; }
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  border: 2px dashed var(--primary);
+  border-radius: 8px;
+  background: var(--beige-claro);
+  text-align: center;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  margin-bottom: 10px;
+}
+.dropzone:hover { background: var(--beige); border-color: var(--primary-dark); }
+.dropzone strong { color: var(--primary); font-size: 13px; }
+.dropzone span { color: var(--muted); font-size: 11px; }
+.dropzone.secondary {
+  border-color: var(--border);
+  background: #fafbfd;
+}
+.dropzone.secondary strong { color: var(--text); font-size: 12px; font-weight: 500; }
