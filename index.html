@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Conciliación del IVA — España</title>
 <link rel="stylesheet" href="styles.css" />
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+  }
+</script>
 </head>
 <body>
 <header class="topbar">
@@ -50,7 +57,13 @@
       <div class="card">
         <header>
           <h3>Facturas emitidas (IVA devengado)</h3>
-          <button class="btn small" data-add="emitidas" type="button">+ Añadir</button>
+          <div class="header-actions">
+            <label class="btn small" for="imp-emitidas-xlsx">Importar Excel/CSV</label>
+            <input id="imp-emitidas-xlsx" type="file" accept=".xlsx,.xls,.csv" hidden />
+            <label class="btn small" for="imp-emitidas-pdf">Importar PDF</label>
+            <input id="imp-emitidas-pdf" type="file" accept="application/pdf" hidden />
+            <button class="btn small" data-add="emitidas" type="button">+ Añadir</button>
+          </div>
         </header>
         <table class="data-table" id="tbl-emitidas">
           <thead>
@@ -75,7 +88,13 @@
       <div class="card">
         <header>
           <h3>Facturas recibidas (IVA soportado deducible)</h3>
-          <button class="btn small" data-add="recibidas" type="button">+ Añadir</button>
+          <div class="header-actions">
+            <label class="btn small" for="imp-recibidas-xlsx">Importar Excel/CSV</label>
+            <input id="imp-recibidas-xlsx" type="file" accept=".xlsx,.xls,.csv" hidden />
+            <label class="btn small" for="imp-recibidas-pdf">Importar PDF</label>
+            <input id="imp-recibidas-pdf" type="file" accept="application/pdf" hidden />
+            <button class="btn small" data-add="recibidas" type="button">+ Añadir</button>
+          </div>
         </header>
         <table class="data-table" id="tbl-recibidas">
           <thead>
@@ -107,11 +126,17 @@
       <p>Introduce las casillas declaradas en cada trimestre.</p>
     </div>
 
-    <div class="trimester-switch">
-      <label><input type="radio" name="tri-303" value="1" checked /> 1T</label>
-      <label><input type="radio" name="tri-303" value="2" /> 2T</label>
-      <label><input type="radio" name="tri-303" value="3" /> 3T</label>
-      <label><input type="radio" name="tri-303" value="4" /> 4T</label>
+    <div class="row-bar">
+      <div class="trimester-switch">
+        <label><input type="radio" name="tri-303" value="1" checked /> 1T</label>
+        <label><input type="radio" name="tri-303" value="2" /> 2T</label>
+        <label><input type="radio" name="tri-303" value="3" /> 3T</label>
+        <label><input type="radio" name="tri-303" value="4" /> 4T</label>
+      </div>
+      <div class="header-actions">
+        <label class="btn small" for="imp-303-pdf">Importar PDF Modelo 303</label>
+        <input id="imp-303-pdf" type="file" accept="application/pdf" hidden />
+      </div>
     </div>
 
     <div class="card">
@@ -194,10 +219,16 @@
     </div>
 
     <div class="card">
-      <label class="check">
-        <input type="checkbox" id="presenta-390" checked />
-        Presenta modelo 390 (si tributa por SII o REDEME, desmarcar)
-      </label>
+      <div class="row-bar">
+        <label class="check">
+          <input type="checkbox" id="presenta-390" checked />
+          Presenta modelo 390 (si tributa por SII o REDEME, desmarcar)
+        </label>
+        <div class="header-actions">
+          <label class="btn small" for="imp-390-pdf">Importar PDF Modelo 390</label>
+          <input id="imp-390-pdf" type="file" accept="application/pdf" hidden />
+        </div>
+      </div>
     </div>
 
     <div class="card" id="m390-form">
@@ -300,8 +331,23 @@
   </section>
 </main>
 
+<div id="modal" class="modal" hidden>
+  <div class="modal-card">
+    <header>
+      <h3 id="modal-title">Previsualización</h3>
+      <button class="row-del" id="modal-close" type="button" title="Cerrar">×</button>
+    </header>
+    <div id="modal-body"></div>
+    <footer class="modal-foot">
+      <button class="btn ghost" id="modal-cancel" type="button">Cancelar</button>
+      <button class="btn primary" id="modal-ok" type="button">Aplicar</button>
+    </footer>
+  </div>
+</div>
+
 <footer>
-  <p>Aplicación local · Datos en <code>localStorage</code> del navegador.</p>
+  <p>Aplicación local · Datos en <code>localStorage</code> del navegador. ·
+     <a href="#" id="link-plantilla">Descargar plantilla Excel</a></p>
 </footer>
 
 <script src="app.js"></script>

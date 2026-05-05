@@ -251,3 +251,49 @@ footer code { background: white; padding: 2px 6px; border-radius: 4px; border: 1
   cursor: pointer;
   font-size: 16px;
 }
+
+.header-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.row-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+
+label.btn { display: inline-block; }
+
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, .55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal[hidden] { display: none; }
+.modal-card {
+  background: white;
+  border-radius: 10px;
+  width: min(900px, 92vw);
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+}
+.modal-card header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+}
+.modal-card header h3 { margin: 0; font-size: 15px; }
+#modal-body { padding: 16px 18px; overflow: auto; flex: 1; }
+.modal-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 18px; border-top: 1px solid var(--border);
+}
+.preview-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.preview-table th, .preview-table td {
+  padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left;
+}
+.preview-table th { background: #fafbfd; font-weight: 600; color: var(--muted); }
+.preview-table td.num { text-align: right; }
+.mapping-row {
+  display: grid; grid-template-columns: 140px 1fr; gap: 8px;
+  margin-bottom: 6px; font-size: 13px; align-items: center;
+}
+.mapping-row select { padding: 4px 6px; }
+.preview-meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }

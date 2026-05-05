@@ -571,5 +571,409 @@ function ejemploDataset() {
   return s;
 }
 
+/* =========================================================
+   Importación Excel / CSV / PDF
+   ========================================================= */
+
+const HEADER_HINTS = {
+  fecha:       ["fecha", "date", "f.factura", "fecha factura", "fecha emision", "fecha expedicion"],
+  numero:      ["numero", "número", "nº", "n factura", "num factura", "factura", "n. factura"],
+  contraparte: ["cliente", "proveedor", "razon social", "razón social", "nombre", "denominacion", "tercero"],
+  tipoIva:     ["tipo iva", "tipo", "% iva", "%iva", "iva %", "porcentaje", "tipo impositivo"],
+  base:        ["base", "base imponible", "importe base", "neto", "subtotal"],
+  cuota:       ["cuota", "cuota iva", "iva", "importe iva", "impuesto"],
+  deducible:   ["deducible", "% deducible", "deduccion", "porcentaje deducible"],
+};
+
+function detectarColumnas(headers) {
+  const map = {};
+  const norm = headers.map((h) => String(h || "").toLowerCase().trim().replace(/\s+/g, " "));
+  Object.entries(HEADER_HINTS).forEach(([campo, claves]) => {
+    let idx = -1;
+    for (const k of claves) {
+      idx = norm.findIndex((h) => h === k || h.includes(k));
+      if (idx >= 0) break;
+    }
+    if (idx >= 0) map[campo] = idx;
+  });
+  return map;
+}
+
+function normalizarTipoIva(v) {
+  const s = String(v ?? "").replace("%", "").replace(",", ".").trim();
+  const n = parseFloat(s);
+  if (!isFinite(n)) return "21";
+  if (Math.abs(n - 21) < 0.5) return "21";
+  if (Math.abs(n - 10) < 0.5) return "10";
+  if (Math.abs(n - 4) < 0.5) return "4";
+  if (Math.abs(n - 0) < 0.5) return "0";
+  return "21";
+}
+
+function parseFecha(v) {
+  if (!v && v !== 0) return "";
+  if (typeof v === "number") {
+    // Excel serial date
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  let m;
+  if ((m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/))) {
+    let [_, d, mo, y] = m;
+    if (y.length === 2) y = (parseInt(y, 10) > 50 ? "19" : "20") + y;
+    return `${y.padStart(4, "0")}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return s.slice(0, 10);
+  return s;
+}
+
+async function leerArchivoExcel(file) {
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { cellDates: false });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+  return rows;
+}
+
+function importarLibroDesdeFilas(filas, tipo, tri) {
+  if (!filas.length) { flash("Archivo vacío"); return; }
+  // Buscar fila de cabecera (la primera con al menos 3 textos)
+  let headerIdx = filas.findIndex((r) =>
+    r.filter((c) => typeof c === "string" && c.trim().length > 0).length >= 3);
+  if (headerIdx < 0) headerIdx = 0;
+  const headers = filas[headerIdx].map((c) => String(c ?? ""));
+  const mapping = detectarColumnas(headers);
+  const datos = filas.slice(headerIdx + 1)
+    .filter((r) => r.some((c) => c !== "" && c != null));
+
+  abrirModalMapeo({ headers, mapping, datos, tipo, tri });
+}
+
+function abrirModalMapeo({ headers, mapping, datos, tipo, tri }) {
+  const body = document.getElementById("modal-body");
+  document.getElementById("modal-title").textContent =
+    `Importar ${tipo === "emitidas" ? "facturas emitidas" : "facturas recibidas"} — ${tri}T`;
+
+  const campos = ["fecha", "numero", "contraparte", "tipoIva", "base", "cuota"];
+  if (tipo === "recibidas") campos.push("deducible");
+
+  const opcionesCol = (sel) => `
+    <option value="">— sin asignar —</option>
+    ${headers.map((h, i) => `<option value="${i}" ${sel === i ? "selected" : ""}>${escapeHtml(h)} (col ${i + 1})</option>`).join("")}
+  `;
+
+  body.innerHTML = `
+    <p class="preview-meta">${datos.length} filas detectadas. Verifica el mapeo de columnas:</p>
+    <div id="mapeo">
+      ${campos.map((c) => `
+        <div class="mapping-row">
+          <label>${c}</label>
+          <select data-campo="${c}">${opcionesCol(mapping[c] ?? "")}</select>
+        </div>
+      `).join("")}
+    </div>
+    <h4 style="margin:14px 0 6px;">Vista previa (primeras 5 filas)</h4>
+    <div id="preview"></div>
+  `;
+
+  const renderPreview = () => {
+    const map = {};
+    body.querySelectorAll("select[data-campo]").forEach((s) => {
+      const v = s.value;
+      if (v !== "") map[s.dataset.campo] = parseInt(v, 10);
+    });
+    const cabeceras = campos.map((c) => `<th>${c}</th>`).join("");
+    const cuerpo = datos.slice(0, 5).map((r) => {
+      const cels = campos.map((c) => {
+        const idx = map[c];
+        const val = idx == null ? "" : r[idx];
+        const num = ["base", "cuota", "deducible"].includes(c);
+        return `<td class="${num ? "num" : ""}">${escapeHtml(String(val ?? ""))}</td>`;
+      }).join("");
+      return `<tr>${cels}</tr>`;
+    }).join("");
+    document.getElementById("preview").innerHTML =
+      `<table class="preview-table"><thead><tr>${cabeceras}</tr></thead><tbody>${cuerpo}</tbody></table>`;
+  };
+  body.querySelectorAll("select[data-campo]").forEach((s) => s.addEventListener("change", renderPreview));
+  renderPreview();
+
+  abrirModal(() => {
+    const map = {};
+    body.querySelectorAll("select[data-campo]").forEach((s) => {
+      if (s.value !== "") map[s.dataset.campo] = parseInt(s.value, 10);
+    });
+    if (map.base == null && map.cuota == null) { flash("Debes asignar al menos base o cuota"); return false; }
+
+    const dest = state.trimestres[tri][tipo];
+    let añadidas = 0;
+    datos.forEach((r) => {
+      const get = (k) => map[k] != null ? r[map[k]] : "";
+      const tipoIva = normalizarTipoIva(get("tipoIva") || "21");
+      const base = num(get("base"));
+      let cuota = num(get("cuota"));
+      if (cuota === 0 && base !== 0) cuota = round2(base * parseFloat(tipoIva) / 100);
+      const fila = {
+        fecha: parseFecha(get("fecha")),
+        numero: String(get("numero") ?? ""),
+        contraparte: String(get("contraparte") ?? ""),
+        tipoIva, base, cuota,
+      };
+      if (tipo === "recibidas") {
+        const ded = num(get("deducible"));
+        fila.deducible = ded === 0 ? 100 : ded;
+      }
+      if (base === 0 && cuota === 0) return;
+      dest.push(fila);
+      añadidas++;
+    });
+    save();
+    renderLibros();
+    flash(`${añadidas} líneas importadas en ${tri}T.`);
+    return true;
+  });
+}
+
+/* ---------- PDF ---------- */
+async function extraerTextoPdf(file) {
+  if (!window.pdfjsLib) throw new Error("PDF.js no cargado todavía");
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const partes = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    const linea = tc.items.map((it) => it.str).join(" ");
+    partes.push(linea);
+  }
+  return partes.join("\n");
+}
+
+const num303 = (s) => {
+  if (!s) return 0;
+  const t = String(s).replace(/\./g, "").replace(",", ".").replace(/[^\d.\-]/g, "");
+  const n = parseFloat(t);
+  return isFinite(n) ? n : 0;
+};
+
+function detectarCasillas303(texto) {
+  // Patrón: número de casilla seguido (cerca) de un importe
+  // El PDF de la AEAT pinta: "[01] 100.000,00" o tablas con número y cuantía
+  const out = {};
+  const buscar = (cas) => {
+    const re = new RegExp(`(?:^|\\s|\\[)${cas}\\s*[\\]\\)\\.:\\-]?\\s+([\\-+]?[0-9.,]+)`, "g");
+    let last = null, m;
+    while ((m = re.exec(texto)) !== null) {
+      const v = num303(m[1]);
+      if (v !== 0) last = v;
+    }
+    return last;
+  };
+  const casillas = {
+    b21: "01", c21: "03",
+    b10: "04", c10: "06",
+    b4:  "07", c4:  "09",
+    b_intra: "10", c_intra: "11",
+    b_isp: "12", c_isp: "13",
+    b_ded_corr: "28", c_ded_corr: "29",
+    b_ded_inv:  "30", c_ded_inv:  "31",
+    b_ded_intra: "36", c_ded_intra: "37",
+  };
+  Object.entries(casillas).forEach(([k, c]) => {
+    const v = buscar(c);
+    if (v != null) out[k] = v;
+  });
+  return out;
+}
+
+async function importarPdf303(file, tri) {
+  try {
+    const txt = await extraerTextoPdf(file);
+    const detect = detectarCasillas303(txt);
+    if (Object.keys(detect).length === 0) {
+      flash("No se han podido detectar casillas en el PDF.");
+      return;
+    }
+    abrirModalPreview303(detect, tri, txt);
+  } catch (e) {
+    flash("Error leyendo PDF: " + e.message);
+  }
+}
+
+function abrirModalPreview303(detect, tri, textoOrig) {
+  document.getElementById("modal-title").textContent = `Importar Modelo 303 — ${tri}T`;
+  const body = document.getElementById("modal-body");
+  const labels = {
+    b21: "Base 21 % (01)", c21: "Cuota 21 % (03)",
+    b10: "Base 10 % (04)", c10: "Cuota 10 % (06)",
+    b4:  "Base 4 % (07)",  c4:  "Cuota 4 % (09)",
+    b_intra: "Base intracom. (10)", c_intra: "Cuota intracom. (11)",
+    b_isp: "Base ISP (12)", c_isp: "Cuota ISP (13)",
+    b_ded_corr: "Base deducible corriente (28)", c_ded_corr: "Cuota deducible corriente (29)",
+    b_ded_inv: "Base inversión (30)", c_ded_inv: "Cuota inversión (31)",
+    b_ded_intra: "Base intracom. ded. (36)", c_ded_intra: "Cuota intracom. ded. (37)",
+  };
+  body.innerHTML = `
+    <p class="preview-meta">Verifica los importes detectados. Puedes editarlos antes de aplicar.</p>
+    <div class="grid casillas">
+      ${Object.keys(labels).map((k) => `
+        <div class="casilla-row" style="background:#fafbfd;padding:8px;border-radius:4px;">
+          <span>${labels[k]}</span>
+          <input data-pdf="${k}" type="number" step="0.01" value="${detect[k] ?? 0}" />
+        </div>
+      `).join("")}
+    </div>
+  `;
+  abrirModal(() => {
+    const m = state.trimestres[tri].m303;
+    body.querySelectorAll("[data-pdf]").forEach((el) => {
+      m[el.dataset.pdf] = num(el.value);
+    });
+    save();
+    if (tri === tri303Activo) render303();
+    flash(`Modelo 303 ${tri}T actualizado.`);
+    return true;
+  });
+}
+
+async function importarPdf390(file) {
+  try {
+    const txt = await extraerTextoPdf(file);
+    // Heurística simple: buscar etiquetas y los siguientes importes
+    const buscar = (etiqueta) => {
+      const re = new RegExp(etiqueta + "[^0-9]{0,30}([\\-+]?[0-9.,]+)", "i");
+      const m = txt.match(re);
+      return m ? num303(m[1]) : 0;
+    };
+    const detect = {
+      b21: buscar("base.{0,30}21"),
+      c21: buscar("cuota.{0,30}21"),
+      b10: buscar("base.{0,30}10"),
+      c10: buscar("cuota.{0,30}10"),
+      b4:  buscar("base.{0,30}4"),
+      c4:  buscar("cuota.{0,30}4"),
+      b_ded: buscar("base.{0,30}deducible"),
+      c_ded: buscar("cuota.{0,30}deducible"),
+    };
+    document.getElementById("modal-title").textContent = "Importar Modelo 390 (anual)";
+    const body = document.getElementById("modal-body");
+    const labels = {
+      b21: "Base 21 %", c21: "Cuota 21 %",
+      b10: "Base 10 %", c10: "Cuota 10 %",
+      b4: "Base 4 %", c4: "Cuota 4 %",
+      b_ded: "Base deducible total", c_ded: "Cuota deducible total",
+    };
+    body.innerHTML = `
+      <p class="preview-meta">Detección heurística — verifica antes de aplicar.</p>
+      <div class="grid casillas">
+        ${Object.keys(labels).map((k) => `
+          <div class="casilla-row" style="background:#fafbfd;padding:8px;border-radius:4px;">
+            <span>${labels[k]}</span>
+            <input data-pdf="${k}" type="number" step="0.01" value="${detect[k] ?? 0}" />
+          </div>
+        `).join("")}
+      </div>
+    `;
+    abrirModal(() => {
+      body.querySelectorAll("[data-pdf]").forEach((el) => {
+        state.m390[el.dataset.pdf] = num(el.value);
+      });
+      save();
+      render390();
+      flash("Modelo 390 actualizado.");
+      return true;
+    });
+  } catch (e) {
+    flash("Error leyendo PDF: " + e.message);
+  }
+}
+
+async function importarLibroDesdePdf(file, tipo, tri) {
+  try {
+    const txt = await extraerTextoPdf(file);
+    // Heurística: cada línea con fecha + nº + texto + % iva + 2 importes
+    const lineas = txt.split(/\n+/);
+    const filas = [];
+    const headerLike = ["FECHA", "Nº FACTURA", "CLIENTE", "PROVEEDOR", "TIPO IVA", "BASE", "CUOTA"];
+    filas.push(headerLike);
+    const re = /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}-\d{2}-\d{2})\s+(\S+)\s+(.+?)\s+(21|10|4|0)\s*%?\s+([\-+]?[0-9.,]+)\s+([\-+]?[0-9.,]+)/;
+    lineas.forEach((l) => {
+      const m = l.match(re);
+      if (m) filas.push([m[1], m[2], m[3], parseFecha(m[1]) ? null : null, m[4], num303(m[5]), num303(m[6])].slice(0, 7));
+    });
+    if (filas.length <= 1) { flash("No se han detectado líneas de factura en el PDF."); return; }
+
+    // Convertir al formato de filas planas (encabezado + filas)
+    const filasOrdenadas = [
+      ["fecha", "numero", "contraparte", "tipo iva", "base", "cuota"],
+      ...filas.slice(1).map((f) => [f[0], f[1], f[2], f[4], f[5], f[6]])
+    ];
+    importarLibroDesdeFilas(filasOrdenadas, tipo, tri);
+  } catch (e) {
+    flash("Error leyendo PDF: " + e.message);
+  }
+}
+
+/* ---------- Modal genérico ---------- */
+let modalCallback = null;
+function abrirModal(onOk) {
+  modalCallback = onOk;
+  document.getElementById("modal").hidden = false;
+}
+function cerrarModal() {
+  modalCallback = null;
+  document.getElementById("modal").hidden = true;
+}
+document.getElementById("modal-close").addEventListener("click", cerrarModal);
+document.getElementById("modal-cancel").addEventListener("click", cerrarModal);
+document.getElementById("modal-ok").addEventListener("click", () => {
+  if (modalCallback) {
+    const r = modalCallback();
+    if (r !== false) cerrarModal();
+  } else cerrarModal();
+});
+
+/* ---------- Listeners de los inputs file ---------- */
+function bindImport(id, handler) {
+  document.getElementById(id).addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    await handler(f);
+    e.target.value = "";
+  });
+}
+bindImport("imp-emitidas-xlsx", async (f) => {
+  const filas = await leerArchivoExcel(f);
+  importarLibroDesdeFilas(filas, "emitidas", triLibroActivo);
+});
+bindImport("imp-recibidas-xlsx", async (f) => {
+  const filas = await leerArchivoExcel(f);
+  importarLibroDesdeFilas(filas, "recibidas", triLibroActivo);
+});
+bindImport("imp-emitidas-pdf", (f) => importarLibroDesdePdf(f, "emitidas", triLibroActivo));
+bindImport("imp-recibidas-pdf", (f) => importarLibroDesdePdf(f, "recibidas", triLibroActivo));
+bindImport("imp-303-pdf", (f) => importarPdf303(f, tri303Activo));
+bindImport("imp-390-pdf", (f) => importarPdf390(f));
+
+/* ---------- Plantilla descargable ---------- */
+document.getElementById("link-plantilla").addEventListener("click", (e) => {
+  e.preventDefault();
+  if (!window.XLSX) { flash("Esperando a que se cargue el motor Excel..."); return; }
+  const wb = XLSX.utils.book_new();
+  const emit = [
+    ["Fecha", "Nº factura", "Cliente", "Tipo IVA", "Base", "Cuota"],
+    ["2025-01-15", "F-001", "Cliente A", 21, 100000, 21000],
+    ["2025-02-10", "F-002", "Cliente B", 10, 30000, 3000],
+  ];
+  const reci = [
+    ["Fecha", "Nº factura", "Proveedor", "Tipo IVA", "Base", "Cuota", "Deducible"],
+    ["2025-01-10", "P-100", "Proveedor X", 21, 50000, 10500, 100],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(emit), "Emitidas");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(reci), "Recibidas");
+  XLSX.writeFile(wb, "plantilla-libros-iva.xlsx");
+});
+
 /* ---------- Init ---------- */
 renderTodo();
