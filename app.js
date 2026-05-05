@@ -144,10 +144,58 @@ function persistPeriodo() {
 /* ---------- Utilidades ---------- */
 const fmt = (n) =>
   (Number(n) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const num = (v) => {
-  const n = parseFloat(String(v).replace(",", "."));
-  return isFinite(n) ? n : 0;
-};
+
+/* Parser de cantidades robusto para formato español, inglés y mixto.
+   Acepta: 1.234,56 (es) · 1,234.56 (en) · 1234,56 · 1234.56 · "1.234,56 €" ·
+   "(123,45)" como negativo · números puros. El bug previo era que "1.234,56"
+   se convertía en "1.234.56" → parseFloat() devolvía 1, no 1234,56. */
+function num(v) {
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  if (v == null) return 0;
+  let s = String(v).trim();
+  if (!s) return 0;
+  // Paréntesis = negativo (formato contable)
+  let neg = false;
+  if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
+  // Quitar todo lo que no sea dígito, separadores o signo
+  s = s.replace(/[^\d.,\-+]/g, "");
+  if (s.startsWith("-")) { neg = !neg; s = s.slice(1); }
+  if (s.startsWith("+")) s = s.slice(1);
+  if (!s) return 0;
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  let parsed;
+  if (lastComma >= 0 && lastDot >= 0) {
+    // Ambos: el de más a la derecha es el decimal
+    if (lastComma > lastDot) parsed = parseFloat(s.replace(/\./g, "").replace(",", "."));
+    else parsed = parseFloat(s.replace(/,/g, ""));
+  } else if (lastComma >= 0) {
+    // Solo comas. Si hay varias o la parte tras la coma tiene exactamente
+    // 3 dígitos y nada más, asumimos miles inglesas (1,234). Si no, decimal español.
+    const partes = s.split(",");
+    const todasTresDigitos = partes.slice(1).every((p) => p.length === 3);
+    if (partes.length > 2 || (partes.length === 2 && partes[1].length === 3 && todasTresDigitos)) {
+      parsed = parseFloat(s.replace(/,/g, ""));
+    } else {
+      parsed = parseFloat(s.replace(",", "."));
+    }
+  } else if (lastDot >= 0) {
+    // Solo puntos. Dos o más → todos miles. Uno con 3 dígitos detrás → miles.
+    const partes = s.split(".");
+    const sufijoTresDigitos = partes.length === 2 && partes[1].length === 3;
+    if (partes.length > 2 || sufijoTresDigitos) {
+      parsed = parseFloat(s.replace(/\./g, ""));
+    } else {
+      parsed = parseFloat(s);
+    }
+  } else {
+    parsed = parseFloat(s);
+  }
+  if (!isFinite(parsed)) return 0;
+  return neg ? -parsed : parsed;
+}
+const num303 = num; // mismo parser
+
 const round2 = (n) => Math.round(n * 100) / 100;
 
 function save() {
@@ -1167,7 +1215,9 @@ const HEADER_HINTS = {
 
 function _normHeader(h) {
   return String(h || "").toLowerCase().trim()
+    .replace(/ /g, " ")               // NBSP → espacio
     .normalize("NFD").replace(/[̀-ͯ]/g, "") // sin tildes
+    .replace(/[º°]/g, "")                   // ordinal: "Nº" → "n"
     .replace(/\s+/g, " ");
 }
 
@@ -1310,7 +1360,8 @@ function importarLibroDesdeFilas(filas, tipo, tri) {
     renderResultados();
     const partes = Object.entries(res.porPeriodo)
       .map(([p, n]) => `${n} en ${periodLabel(p)}`).join(", ");
-    flash(`${res.total} facturas importadas (${partes || "sin reparto"}).`);
+    const skip = res.saltadas ? ` · ${res.saltadas} sin importes` : "";
+    flash(`${res.total} facturas importadas (${partes || "sin reparto"})${skip}.`);
     return;
   }
   // Fallback: detección incompleta → pedir mapeo manual.
@@ -1334,13 +1385,14 @@ function aplicarFilasAutomaticas(datos, mapping, tipo, triFallback) {
   const porPeriodo = {};
   const periodosTocados = new Set();
   let total = 0;
+  let saltadas = 0;
   datos.forEach((r) => {
     const get = (k) => mapping[k] != null ? r[mapping[k]] : "";
     const tipoIva = normalizarTipoIva(get("tipoIva") || "21");
     const base = num(get("base"));
     let cuota = num(get("cuota"));
     if (cuota === 0 && base !== 0) cuota = round2(base * parseFloat(tipoIva) / 100);
-    if (base === 0 && cuota === 0) return;
+    if (base === 0 && cuota === 0) { saltadas++; return; }
     const fecha = parseFecha(get("fecha"));
     const pk = periodoDesdeFecha(fecha) || triFallback;
     const fila = {
@@ -1350,15 +1402,21 @@ function aplicarFilasAutomaticas(datos, mapping, tipo, triFallback) {
       tipoIva, base, cuota,
     };
     if (tipo === "recibidas") {
-      const ded = num(get("deducible"));
-      fila.deducible = ded === 0 ? 100 : ded;
+      // Distinguir entre "no hay columna" / "celda vacía" (→ 100 % por
+      // defecto) y un valor explícito (incluido el 0).
+      let ded = 100;
+      if (mapping.deducible != null) {
+        const raw = get("deducible");
+        if (raw !== "" && raw !== null && raw !== undefined) ded = num(raw);
+      }
+      fila.deducible = ded;
     }
     bucket(pk)[tipo].push(fila);
     porPeriodo[pk] = (porPeriodo[pk] || 0) + 1;
     periodosTocados.add(pk);
     total++;
   });
-  return { total, porPeriodo, periodosTocados };
+  return { total, porPeriodo, periodosTocados, saltadas };
 }
 
 /* Tras importar libros, rellena las casillas del 303 que estén a 0. No pisa
@@ -1521,13 +1579,6 @@ async function extraerLineasPdf(file) {
   }
   return lineas;
 }
-
-const num303 = (s) => {
-  if (!s) return 0;
-  const t = String(s).replace(/\./g, "").replace(",", ".").replace(/[^\d.\-]/g, "");
-  const n = parseFloat(t);
-  return isFinite(n) ? n : 0;
-};
 
 /* Detecta el valor de cada casilla del 303. Trabaja en dos pasadas:
    1) Posicional (si tenemos líneas con coords): para cada casilla, busca un
@@ -1832,7 +1883,10 @@ async function importarPdf390(file) {
    IVA y al menos dos números (base y cuota). El resto de tokens se
    interpretan como número de factura y nombre de contraparte. */
 const RE_FECHA = /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}-\d{1,2}-\d{1,2})/;
-const RE_NUMERO_PURO = /^[\-+]?\(?-?[\d][\d.,]*\)?$/;
+// Token "parece un importe": empieza por dígito (con posible signo o paréntesis
+// de apertura), tiene al menos un dígito y solo caracteres de número/separadores
+// con sufijo opcional € / EUR.
+const RE_NUMERO_PURO = /^[\-+]?\(?-?\d[\d.,]*\)?\s*(?:€|EUR|EUROS?)?$/i;
 const RE_PORC_IVA = /^(21|10|4|12|10[.,]5|0)\s*%?$/i;
 const RE_PORC_IVA_BLANDA = /(?:^|\s)(21|10|4|12|10[.,]5|0)\s*%/i;
 
