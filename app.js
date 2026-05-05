@@ -1145,27 +1145,72 @@ function ejemploDataset() {
    ========================================================= */
 
 const HEADER_HINTS = {
-  fecha:       ["fecha", "date", "f.factura", "fecha factura", "fecha emision", "fecha expedicion"],
-  numero:      ["numero", "número", "nº", "n factura", "num factura", "factura", "n. factura"],
-  contraparte: ["cliente", "proveedor", "razon social", "razón social", "nombre", "denominacion", "tercero"],
-  tipoIva:     ["tipo iva", "tipo", "% iva", "%iva", "iva %", "porcentaje", "tipo impositivo"],
-  base:        ["base", "base imponible", "importe base", "neto", "subtotal"],
-  cuota:       ["cuota", "cuota iva", "iva", "importe iva", "impuesto"],
-  deducible:   ["deducible", "% deducible", "deduccion", "porcentaje deducible"],
+  fecha:       ["fecha", "date", "f.factura", "f. factura", "fecha factura", "fecha emision",
+                "fecha emisión", "fecha expedicion", "fecha expedición", "fec.expedicion",
+                "f.emision", "f. emision", "f. emisión"],
+  numero:      ["numero", "número", "nº", "n factura", "num factura", "factura", "n. factura",
+                "num. factura", "núm. factura", "n.º factura", "nº factura", "serie-numero",
+                "serie-número", "id factura", "ref factura", "referencia"],
+  contraparte: ["cliente", "proveedor", "razon social", "razón social", "nombre", "nombre cliente",
+                "nombre proveedor", "denominacion", "denominación", "tercero", "destinatario",
+                "emisor", "obligado tributario", "contraparte"],
+  tipoIva:     ["tipo iva", "tipo", "% iva", "%iva", "iva %", "porcentaje", "tipo impositivo",
+                "tipo impositivo iva", "% impositivo", "tipo %", "iva (%)", "porcentaje iva"],
+  base:        ["base", "base imponible", "importe base", "neto", "subtotal", "b.imponible",
+                "b. imponible", "b imponible", "base iva", "base imp.", "base imp"],
+  cuota:       ["cuota", "cuota iva", "iva", "importe iva", "impuesto", "cuota repercutida",
+                "cuota soportada", "cuota devengada", "importe cuota", "iva soportado",
+                "iva repercutido", "iva devengado"],
+  deducible:   ["deducible", "% deducible", "deduccion", "deducción", "porcentaje deducible",
+                "ded.", "ded", "% ded", "% ded."],
 };
+
+function _normHeader(h) {
+  return String(h || "").toLowerCase().trim()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // sin tildes
+    .replace(/\s+/g, " ");
+}
 
 function detectarColumnas(headers) {
   const map = {};
-  const norm = headers.map((h) => String(h || "").toLowerCase().trim().replace(/\s+/g, " "));
+  const norm = headers.map(_normHeader);
+  // Comparamos también las hints sin tildes
   Object.entries(HEADER_HINTS).forEach(([campo, claves]) => {
+    const clavesNorm = claves.map(_normHeader);
     let idx = -1;
-    for (const k of claves) {
-      idx = norm.findIndex((h) => h === k || h.includes(k));
+    // Primero: coincidencia exacta
+    for (const k of clavesNorm) {
+      idx = norm.findIndex((h) => h === k);
       if (idx >= 0) break;
+    }
+    // Si no, que la cabecera contenga la hint o viceversa
+    if (idx < 0) {
+      for (const k of clavesNorm) {
+        idx = norm.findIndex((h) => h.includes(k) || k.includes(h));
+        if (idx >= 0) break;
+      }
     }
     if (idx >= 0) map[campo] = idx;
   });
   return map;
+}
+
+/* Encuentra la fila más probable de cabecera puntuándola por número de
+   coincidencias con HEADER_HINTS. Maneja banners y filas sueltas iniciales
+   (típicas en libros AEAT o exports de ERPs). */
+function detectarFilaCabecera(filas) {
+  let mejor = { idx: 0, score: -1 };
+  const max = Math.min(filas.length, 25);
+  for (let i = 0; i < max; i++) {
+    const cab = filas[i].map(_normHeader);
+    let score = 0;
+    Object.values(HEADER_HINTS).forEach((claves) => {
+      const cn = claves.map(_normHeader);
+      if (cab.some((c) => c && cn.some((k) => c === k || c.includes(k) || k.includes(c)))) score++;
+    });
+    if (score > mejor.score) mejor = { idx: i, score };
+  }
+  return mejor.score >= 2 ? mejor.idx : 0;
 }
 
 function normalizarTipoIva(v) {
@@ -1242,10 +1287,9 @@ async function elegirHoja(hojas) {
 
 function importarLibroDesdeFilas(filas, tipo, tri) {
   if (!filas.length) { flash("Archivo vacío"); return; }
-  // Buscar fila de cabecera (la primera con al menos 3 textos)
-  let headerIdx = filas.findIndex((r) =>
-    r.filter((c) => typeof c === "string" && c.trim().length > 0).length >= 3);
-  if (headerIdx < 0) headerIdx = 0;
+  // Buscar la fila más parecida a una cabecera de libro de IVA puntuándola
+  // por coincidencias con HEADER_HINTS. Cae a la primera fila si nada encaja.
+  const headerIdx = detectarFilaCabecera(filas);
   const headers = filas[headerIdx].map((c) => String(c ?? ""));
   const mapping = detectarColumnas(headers);
   const datos = filas.slice(headerIdx + 1)
@@ -1354,6 +1398,41 @@ async function extraerTextoPdf(file) {
   return partes.join("\n");
 }
 
+/* Extracción posicional: agrupa items por coordenada y (con tolerancia ~2pt)
+   y los ordena por x. Imprescindible para parsear tablas de PDFs reales,
+   donde los items de cada celda llegan en orden arbitrario. */
+async function extraerLineasPdf(file) {
+  if (!window.pdfjsLib) throw new Error("PDF.js no cargado todavía");
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const lineas = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    // Bucket por y con tolerancia
+    const buckets = []; // {y, items}
+    for (const it of tc.items) {
+      if (!it.str) continue;
+      const x = it.transform[4];
+      const y = it.transform[5];
+      let b = buckets.find((bb) => Math.abs(bb.y - y) <= 2.5);
+      if (!b) { b = { y, items: [] }; buckets.push(b); }
+      b.items.push({ x, str: it.str });
+    }
+    buckets.sort((a, b) => b.y - a.y); // top first
+    for (const b of buckets) {
+      b.items.sort((a, c) => a.x - c.x);
+      lineas.push({
+        page: p,
+        y: b.y,
+        items: b.items,
+        text: b.items.map((i) => i.str).join(" ").replace(/\s+/g, " ").trim(),
+      });
+    }
+  }
+  return lineas;
+}
+
 const num303 = (s) => {
   if (!s) return 0;
   const t = String(s).replace(/\./g, "").replace(",", ".").replace(/[^\d.\-]/g, "");
@@ -1361,22 +1440,82 @@ const num303 = (s) => {
   return isFinite(n) ? n : 0;
 };
 
-function detectarCasillas303(texto) {
-  // Estrategia: probar varios patrones por casilla y quedarnos con el valor
-  // más plausible. Se ignoran los matches con valor 0 a no ser que sean los únicos.
-  const out = {};
-  const limpio = texto.replace(/ /g, " ");
+/* Detecta el valor de cada casilla del 303. Trabaja en dos pasadas:
+   1) Posicional (si tenemos líneas con coords): para cada casilla, busca un
+      ítem cuyo texto sea exactamente "NN", "(NN)" o "[NN]" y toma el número
+      más cercano a su derecha en la misma línea (o en la siguiente).
+   2) Fallback regex sobre el texto plano (formatos inline tipo
+      "Casilla 01: 100.000,00" o "[01] 100.000,00").
+   Combinamos ambas: la posicional gana, la regex rellena lo que falte. */
+const CASILLAS_303 = {
+  b21: "01", c21: "03",
+  b10: "04", c10: "06",
+  b4:  "07", c4:  "09",
+  b_intra: "10", c_intra: "11",
+  b_isp: "12", c_isp: "13",
+  b_ded_corr: "28", c_ded_corr: "29",
+  b_ded_inv:  "30", c_ded_inv:  "31",
+  b_ded_intra: "36", c_ded_intra: "37",
+  c_reagyp: "41",
+  c78: "78",
+};
 
+function _esTokenCasilla(str, cas) {
+  const s = str.trim();
+  return s === cas || s === `(${cas})` || s === `[${cas}]` ||
+         s === `${cas}.` || s === `${cas}:` || s === `${cas})`;
+}
+function _esTokenNumero(str) {
+  const s = str.trim();
+  // acepta 1.234,56 / 1234.56 / -123,45 / (123,45)
+  return /^[\-+]?\(?-?[\d][\d.,]*\)?$/.test(s) && /\d/.test(s);
+}
+
+function detectarCasillas303Posicional(lineas) {
+  const out = {};
+  for (const [k, cas] of Object.entries(CASILLAS_303)) {
+    let valor = null;
+    // Buscar en cada línea un item cuyo texto sea exactamente la casilla
+    for (let li = 0; li < lineas.length && valor == null; li++) {
+      const items = lineas[li].items;
+      for (let i = 0; i < items.length; i++) {
+        if (!_esTokenCasilla(items[i].str, cas)) continue;
+        // Buscar el siguiente número a la derecha en la misma línea
+        for (let j = i + 1; j < items.length; j++) {
+          if (_esTokenNumero(items[j].str)) {
+            const v = num303(items[j].str);
+            if (v !== 0) { valor = v; break; }
+          }
+        }
+        if (valor != null) break;
+        // Si nada en la misma línea, mirar la siguiente con x parecida
+        if (li + 1 < lineas.length) {
+          const xRef = items[i].x;
+          const next = lineas[li + 1].items;
+          for (const nit of next) {
+            if (Math.abs(nit.x - xRef) < 80 && _esTokenNumero(nit.str)) {
+              const v = num303(nit.str);
+              if (v !== 0) { valor = v; break; }
+            }
+          }
+        }
+        if (valor != null) break;
+      }
+    }
+    if (valor != null) out[k] = valor;
+  }
+  return out;
+}
+
+function detectarCasillas303Regex(texto) {
+  const out = {};
+  const limpio = texto.replace(/ /g, " ");
   const patrones = (cas) => [
-    // "01 100.000,00" / "[01] 100.000,00" / "01: 100.000,00"
     new RegExp(`(?:^|[\\s\\[\\(])${cas}\\s*[\\]\\)\\.:\\-]?\\s+([\\-+]?\\(?[\\d][\\d.,]*\\)?)`, "g"),
-    // "Casilla 01 100.000,00"
     new RegExp(`[Cc]asilla\\s*${cas}\\s*[\\.:\\-]?\\s+([\\-+]?\\(?[\\d][\\d.,]*\\)?)`, "g"),
-    // "(01) 100.000,00"
     new RegExp(`\\(${cas}\\)\\s+([\\-+]?\\(?[\\d][\\d.,]*\\)?)`, "g"),
   ];
-
-  const buscar = (cas) => {
+  for (const [k, cas] of Object.entries(CASILLAS_303)) {
     const candidatos = [];
     for (const re of patrones(cas)) {
       let m;
@@ -1385,28 +1524,19 @@ function detectarCasillas303(texto) {
         if (v !== 0) candidatos.push(v);
       }
     }
-    if (!candidatos.length) return null;
-    // Elegir el de mayor valor absoluto (suele ser el importe real, no porcentajes)
-    candidatos.sort((a, b) => Math.abs(b) - Math.abs(a));
-    return candidatos[0];
-  };
-
-  const casillas = {
-    b21: "01", c21: "03",
-    b10: "04", c10: "06",
-    b4:  "07", c4:  "09",
-    b_intra: "10", c_intra: "11",
-    b_isp: "12", c_isp: "13",
-    b_ded_corr: "28", c_ded_corr: "29",
-    b_ded_inv:  "30", c_ded_inv:  "31",
-    b_ded_intra: "36", c_ded_intra: "37",
-    c_reagyp: "41", // Compensaciones REAGYP
-  };
-  Object.entries(casillas).forEach(([k, c]) => {
-    const v = buscar(c);
-    if (v != null) out[k] = v;
-  });
+    if (candidatos.length) {
+      candidatos.sort((a, b) => Math.abs(b) - Math.abs(a));
+      out[k] = candidatos[0];
+    }
+  }
   return out;
+}
+
+function detectarCasillas303(texto, lineas) {
+  const posicional = lineas ? detectarCasillas303Posicional(lineas) : {};
+  const regex = detectarCasillas303Regex(texto);
+  // Posicional gana; regex rellena los que faltan
+  return { ...regex, ...posicional };
 }
 
 // Detecta período (trimestre + ejercicio) en PDF del Modelo 303
@@ -1427,8 +1557,9 @@ async function importarPdf303Multiple(files, periodoDefault) {
   const items = [];
   for (const file of files) {
     try {
-      const txt = await extraerTextoPdf(file);
-      const detect = detectarCasillas303(txt);
+      const lineas = await extraerLineasPdf(file);
+      const txt = lineas.map((l) => l.text).join("\n");
+      const detect = detectarCasillas303(txt, lineas);
       const periodo = detectarPeriodo303(txt);
       let pkFinal = periodoDefault;
       if (state.modoDeclaracion === "trimestral" && periodo.trimestre) {
@@ -1606,18 +1737,102 @@ async function importarPdf390(file) {
   }
 }
 
+/* Parser PDF de libro de IVA — robusto a layouts variados (AEAT, Sage, A3,
+   Holded, etc.). Trabaja a nivel de línea posicional: para cada línea del
+   PDF identifica si parece una factura buscando una fecha, un porcentaje
+   IVA y al menos dos números (base y cuota). El resto de tokens se
+   interpretan como número de factura y nombre de contraparte. */
+const RE_FECHA = /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}-\d{1,2}-\d{1,2})/;
+const RE_NUMERO_PURO = /^[\-+]?\(?-?[\d][\d.,]*\)?$/;
+const RE_PORC_IVA = /^(21|10|4|12|10[.,]5|0)\s*%?$/i;
+const RE_PORC_IVA_BLANDA = /(?:^|\s)(21|10|4|12|10[.,]5|0)\s*%/i;
+
+function parsearLineaFacturaPdf(linea) {
+  // Tokens "ricos" (preservan posición x)
+  const items = linea.items || [];
+  if (!items.length) return null;
+
+  // Localizar fecha en cualquier item (puede estar pegada a otros caracteres)
+  let fechaTok = null, fechaIdx = -1;
+  for (let i = 0; i < items.length; i++) {
+    const m = items[i].str.match(RE_FECHA);
+    if (m) { fechaTok = m[1]; fechaIdx = i; break; }
+  }
+  if (!fechaTok) return null;
+
+  // Localizar tipo IVA y números
+  let tipoIvaTok = null;
+  const numericos = []; // {x, val, idx}
+  for (let i = 0; i < items.length; i++) {
+    const s = items[i].str.trim();
+    if (!s) continue;
+    if (!tipoIvaTok && RE_PORC_IVA.test(s)) {
+      tipoIvaTok = s.replace(/[^\d.,]/g, "").replace(",", ".");
+      continue;
+    }
+    if (RE_NUMERO_PURO.test(s)) {
+      const v = num303(s);
+      if (isFinite(v) && v !== 0) numericos.push({ x: items[i].x, val: v, idx: i });
+    }
+  }
+
+  // Si no encontramos tipo IVA aislado, probar en el texto unido
+  if (!tipoIvaTok) {
+    const tm = linea.text.match(RE_PORC_IVA_BLANDA);
+    if (tm) tipoIvaTok = tm[1].replace(",", ".");
+  }
+
+  // Necesitamos al menos 2 importes (base + cuota); si solo hay 1, no es fila.
+  if (numericos.length < 2) return null;
+
+  // Heurística: los 2 últimos números (más a la derecha) son base y cuota.
+  numericos.sort((a, b) => a.x - b.x);
+  const ultimos = numericos.slice(-2);
+  const base = ultimos[0].val;
+  const cuota = ultimos[1].val;
+
+  // Tipo IVA: el explícito si existe; si no, lo deducimos del ratio cuota/base.
+  let tipoIva = tipoIvaTok || "21";
+  if (!tipoIvaTok && base > 0) {
+    tipoIva = normalizarTipoIva(String(cuota / base * 100));
+  }
+
+  // Número de factura: token tras la fecha que NO sea numérico ni tipo IVA.
+  // Contraparte: el resto de tokens textuales de la línea.
+  const noFijos = new Set([fechaIdx, ...ultimos.map((u) => u.idx)]);
+  const noNumIvaIdx = items.findIndex((it, i) =>
+    i > fechaIdx && !noFijos.has(i) && it.str.trim() &&
+    !RE_NUMERO_PURO.test(it.str.trim()) && !RE_PORC_IVA.test(it.str.trim())
+  );
+  let numero = "";
+  if (noNumIvaIdx >= 0) numero = items[noNumIvaIdx].str.trim();
+
+  const contraparte = items
+    .map((it, i) => ({ it, i }))
+    .filter(({ it, i }) =>
+      i !== fechaIdx && i !== noNumIvaIdx && !noFijos.has(i) &&
+      it.str.trim() && !RE_NUMERO_PURO.test(it.str.trim()) &&
+      !RE_PORC_IVA.test(it.str.trim()))
+    .map(({ it }) => it.str.trim())
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { fecha: fechaTok, numero, contraparte, tipoIva, base, cuota };
+}
+
 async function importarLibroDesdePdf(file, tipo, tri) {
   try {
-    const txt = await extraerTextoPdf(file);
-    // Heurística: cada línea con fecha + nº + texto + % iva + 2 importes
-    const lineas = txt.split(/\n+/);
-    const re = /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}-\d{2}-\d{2})\s+(\S+)\s+(.+?)\s+(21|10|4|0)\s*%?\s+([\-+]?[0-9.,]+)\s+([\-+]?[0-9.,]+)/;
+    const lineas = await extraerLineasPdf(file);
     const filas = [["fecha", "numero", "contraparte", "tipo iva", "base", "cuota"]];
-    lineas.forEach((l) => {
-      const m = l.match(re);
-      if (m) filas.push([m[1], m[2], m[3].trim(), m[4], num303(m[5]), num303(m[6])]);
-    });
-    if (filas.length <= 1) { flash("No se han detectado líneas de factura en el PDF."); return; }
+    for (const linea of lineas) {
+      const f = parsearLineaFacturaPdf(linea);
+      if (f) filas.push([f.fecha, f.numero, f.contraparte, f.tipoIva, f.base, f.cuota]);
+    }
+    if (filas.length <= 1) {
+      flash("No se han detectado líneas de factura en el PDF. Prueba con Excel/CSV.");
+      return;
+    }
     importarLibroDesdeFilas(filas, tipo, tri);
   } catch (e) {
     flash("Error leyendo PDF: " + e.message);
