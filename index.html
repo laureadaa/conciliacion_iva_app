@@ -31,7 +31,8 @@
 </header>
 
 <nav class="tabs" role="tablist">
-  <button class="tab active" data-tab="libros" role="tab">1. Libros de IVA</button>
+  <button class="tab active" data-tab="entidad" role="tab">0. Entidad</button>
+  <button class="tab" data-tab="libros" role="tab">1. Libros de IVA</button>
   <button class="tab" data-tab="m303" role="tab">2. Modelo 303</button>
   <button class="tab" data-tab="m390" role="tab">3. Modelo 390</button>
   <button class="tab" data-tab="contab" role="tab">4. Contabilidad</button>
@@ -39,8 +40,47 @@
 </nav>
 
 <main>
+  <!-- ============== ENTIDAD ============== -->
+  <section class="panel active" id="tab-entidad">
+    <div class="panel-head">
+      <h2>Datos de la entidad</h2>
+      <p>Información de cabecera para el informe de conciliación.</p>
+    </div>
+    <div class="card">
+      <div class="grid casillas">
+        <div class="casilla-group">
+          <label>Razón social</label>
+          <div class="casilla-row"><span>Nombre</span><input data-ent="nombre" type="text" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Identificación fiscal</label>
+          <div class="casilla-row"><span>NIF</span><input data-ent="nif" type="text" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Sector</label>
+          <div class="casilla-row"><span>Actividad</span><input data-ent="sector" type="text" /></div>
+        </div>
+        <div class="casilla-group">
+          <label>Modo de declaración</label>
+          <div class="casilla-row">
+            <span>Tipo</span>
+            <select id="modo-decl">
+              <option value="trimestral">Trimestral</option>
+              <option value="mensual">Mensual (SII)</option>
+            </select>
+          </div>
+        </div>
+        <div class="casilla-group">
+          <label>Período</label>
+          <div class="casilla-row"><span>Inicio</span><input data-ent="periodoInicio" type="month" /></div>
+          <div class="casilla-row"><span>Fin</span><input data-ent="periodoFin" type="month" /></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============== LIBROS ============== -->
-  <section class="panel active" id="tab-libros">
+  <section class="panel" id="tab-libros">
     <div class="panel-head">
       <h2>Libros registro de IVA</h2>
       <p>Introduce las facturas emitidas y recibidas por trimestre. La aplicación calcula bases y cuotas por tipo.</p>
@@ -290,9 +330,17 @@
   <!-- ============== RESULTADOS ============== -->
   <section class="panel" id="tab-result">
     <div class="panel-head">
-      <h2>Resultado de las conciliaciones</h2>
-      <p>Tolerancia: ±1 € por periodo y ±1 % de diferencia. Si se supera → REVISAR.</p>
+      <div class="row-bar">
+        <div>
+          <h2>Resultado de las conciliaciones</h2>
+          <p>Tolerancia: ±1 € por periodo y ±1 % de diferencia. Si se supera → REVISAR.</p>
+        </div>
+        <div class="header-actions">
+          <button class="btn primary" id="btn-export" type="button">Exportar informe Excel</button>
+        </div>
+      </div>
     </div>
+    <div class="card" id="riesgo-summary"></div>
 
     <div class="card">
       <h3>1. Contabilidad ↔ Libros de IVA (anual)</h3>

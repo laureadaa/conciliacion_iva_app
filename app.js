@@ -8,11 +8,12 @@
    Tolerancia: ±1 € o ±1 % por línea.
    ========================================================= */
 
-const STORAGE_KEY = "iva-conciliacion-v1";
+const STORAGE_KEY = "iva-conciliacion-v2";
 const TOLERANCIA_EUR = 1.0;
 const TOLERANCIA_PCT = 1.0;
 
-const TIPOS_IVA = ["21", "10", "4", "0"];
+const TIPOS_IVA = ["21", "10", "4", "12", "10.5", "0"];
+const TIPOS_REAGYP = [12, 10.5];
 
 const empty303 = () => ({
   b21: 0, c21: 0,
@@ -23,18 +24,21 @@ const empty303 = () => ({
   b_ded_corr: 0, c_ded_corr: 0,
   b_ded_inv: 0, c_ded_inv: 0,
   b_ded_intra: 0, c_ded_intra: 0,
+  c_reagyp: 0,
 });
 
 const defaultState = () => ({
   ejercicio: 2025,
   presenta390: true,
+  modoDeclaracion: "trimestral",
+  entidad: { nombre: "", nif: "", sector: "", periodoInicio: "", periodoFin: "" },
   trimestres: {
     1: { emitidas: [], recibidas: [], m303: empty303() },
     2: { emitidas: [], recibidas: [], m303: empty303() },
     3: { emitidas: [], recibidas: [], m303: empty303() },
     4: { emitidas: [], recibidas: [], m303: empty303() },
   },
-  m390: { b21: 0, c21: 0, b10: 0, c10: 0, b4: 0, c4: 0, b_ded: 0, c_ded: 0 },
+  m390: { b21: 0, c21: 0, b10: 0, c10: 0, b4: 0, c4: 0, b_ded: 0, c_ded: 0, c_reagyp: 0 },
   contab: { c477: 0, c472: 0, c4750: 0, c4700: 0 },
 });
 
@@ -128,6 +132,8 @@ document.querySelectorAll("[data-add]").forEach((b) => {
 document.getElementById("ejercicio").addEventListener("input", (e) => {
   state.ejercicio = parseInt(e.target.value, 10) || new Date().getFullYear();
 });
+
+document.getElementById("btn-export").addEventListener("click", exportarInformeExcel);
 
 document.getElementById("presenta-390").addEventListener("change", (e) => {
   state.presenta390 = e.target.checked;
@@ -272,6 +278,19 @@ function renderContab() {
   });
 }
 
+/* ---------- Render: Entidad ---------- */
+function renderEntidad() {
+  document.querySelectorAll("[data-ent]").forEach((el) => {
+    el.value = state.entidad[el.dataset.ent] ?? "";
+    el.oninput = () => { state.entidad[el.dataset.ent] = el.value; };
+  });
+  const sel = document.getElementById("modo-decl");
+  if (sel) {
+    sel.value = state.modoDeclaracion;
+    sel.onchange = () => { state.modoDeclaracion = sel.value; };
+  }
+}
+
 /* ---------- Cálculos ---------- */
 function totalesLibroEmitidasPorTipo(tri) {
   const r = { 21: { base: 0, cuota: 0 }, 10: { base: 0, cuota: 0 }, 4: { base: 0, cuota: 0 }, 0: { base: 0, cuota: 0 } };
@@ -287,6 +306,7 @@ function totalesLibroEmitidasPorTipo(tri) {
 function totalesLibroRecibidasPorTipo(tri) {
   const r = { 21: { base: 0, cuota: 0 }, 10: { base: 0, cuota: 0 }, 4: { base: 0, cuota: 0 }, 0: { base: 0, cuota: 0 } };
   state.trimestres[tri].recibidas.forEach((f) => {
+    if (esReagyp(f.tipoIva)) return; // REAGYP se contabiliza aparte
     const k = f.tipoIva;
     const ded = num(f.deducible) / 100;
     if (!r[k]) r[k] = { base: 0, cuota: 0 };
@@ -306,8 +326,29 @@ function totalLibroDevengadoAnual() {
 function totalLibroDeducibleAnual() {
   let total = 0;
   for (let t = 1; t <= 4; t++) {
-    state.trimestres[t].recibidas.forEach((f) => total += num(f.cuota) * num(f.deducible) / 100);
+    state.trimestres[t].recibidas.forEach((f) => {
+      if (esReagyp(f.tipoIva)) return;
+      total += num(f.cuota) * num(f.deducible) / 100;
+    });
   }
+  return total;
+}
+function totalReagypAnual() {
+  let total = 0;
+  for (let t = 1; t <= 4; t++) {
+    state.trimestres[t].recibidas.forEach((f) => {
+      if (!esReagyp(f.tipoIva)) return;
+      total += num(f.cuota) * num(f.deducible) / 100;
+    });
+  }
+  return total;
+}
+function totalReagypTrimestre(tri) {
+  let total = 0;
+  state.trimestres[tri].recibidas.forEach((f) => {
+    if (!esReagyp(f.tipoIva)) return;
+    total += num(f.cuota) * num(f.deducible) / 100;
+  });
   return total;
 }
 
@@ -321,12 +362,188 @@ function evaluarDif(libro, declarado) {
   return { dif, pct, estado };
 }
 
+/* ---------- Clasificación de riesgo ---------- */
+function calcularRiesgo() {
+  const devLibro = totalLibroDevengadoAnual();
+  const dedLibro = totalLibroDeducibleAnual();
+  const reagypLib = totalReagypAnual();
+  let dev303 = 0, ded303 = 0, reagyp303 = 0;
+  for (let t = 1; t <= 4; t++) {
+    const m = state.trimestres[t].m303;
+    dev303 += m.c21 + m.c10 + m.c4;
+    ded303 += m.c_ded_corr + m.c_ded_inv + m.c_ded_intra;
+    reagyp303 += m.c_reagyp || 0;
+  }
+  const dDev = Math.abs(devLibro - dev303);
+  const dDed = Math.abs(dedLibro - ded303);
+  const dReagyp = Math.abs(reagypLib - reagyp303);
+  const difTotal = dDev + dDed + dReagyp;
+  const base = dev303 + ded303 + reagyp303;
+  const pct = base === 0 ? 0 : (difTotal / base) * 100;
+
+  let nivel = "BAJO";
+  if (difTotal > TOLERANCIA_EUR * 4 || pct > TOLERANCIA_PCT) nivel = "MODERADO";
+  if (difTotal > TOLERANCIA_EUR * 20 || pct > TOLERANCIA_PCT * 5) nivel = "ALTO";
+  return { nivel, difTotal: round2(difTotal), pct: round2(pct), dDev: round2(devLibro - dev303),
+           dDed: round2(dedLibro - ded303), dReagyp: round2(reagypLib - reagyp303) };
+}
+
 /* ---------- Render: Resultados ---------- */
 function renderResultados() {
+  renderRiesgo();
   renderReconContab();
   renderRecon303();
   renderRecon390();
   comprobarCausas();
+}
+
+function renderRiesgo() {
+  const r = calcularRiesgo();
+  const cont = document.getElementById("riesgo-summary");
+  if (!cont) return;
+  const cls = r.nivel === "BAJO" ? "ok" : r.nivel === "MODERADO" ? "warn" : "err";
+  cont.innerHTML = `
+    <div class="risk-grid">
+      <div class="risk-item">
+        <span class="risk-label">Nivel de riesgo</span>
+        <span class="badge ${cls} big">${r.nivel}</span>
+      </div>
+      <div class="risk-item">
+        <span class="risk-label">Diferencia devengado</span>
+        <strong>${fmt(r.dDev)} €</strong>
+      </div>
+      <div class="risk-item">
+        <span class="risk-label">Diferencia deducible</span>
+        <strong>${fmt(r.dDed)} €</strong>
+      </div>
+      <div class="risk-item">
+        <span class="risk-label">Diferencia REAGYP</span>
+        <strong>${fmt(r.dReagyp)} €</strong>
+      </div>
+      <div class="risk-item">
+        <span class="risk-label">Desviación global</span>
+        <strong>${r.pct.toFixed(2)} %</strong>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------- Exportar informe a Excel ---------- */
+function exportarInformeExcel() {
+  if (!window.XLSX) { flash("Esperando motor Excel..."); return; }
+  const wb = XLSX.utils.book_new();
+  const r = calcularRiesgo();
+  const ent = state.entidad;
+
+  // Hoja 1: Resumen
+  const resumen = [
+    ["INFORME DE CONCILIACIÓN DEL IVA"],
+    [],
+    ["Entidad", ent.nombre || ""],
+    ["NIF", ent.nif || ""],
+    ["Sector", ent.sector || ""],
+    ["Ejercicio", state.ejercicio],
+    ["Período", `${ent.periodoInicio || ""} a ${ent.periodoFin || ""}`],
+    ["Modo", state.modoDeclaracion],
+    ["Fecha informe", new Date().toLocaleDateString("es-ES")],
+    [],
+    ["RESULTADO GLOBAL"],
+    ["Nivel de riesgo", r.nivel],
+    ["Diferencia total (€)", r.difTotal],
+    ["Desviación (%)", r.pct],
+    [],
+    ["TOTALES ANUALES"],
+    ["Concepto", "Libro", "Modelos", "Diferencia"],
+    ["IVA devengado", totalLibroDevengadoAnual(), sumar303("c21") + sumar303("c10") + sumar303("c4"), r.dDev],
+    ["IVA deducible", totalLibroDeducibleAnual(), sumar303("c_ded_corr") + sumar303("c_ded_inv") + sumar303("c_ded_intra"), r.dDed],
+    ["REAGYP", totalReagypAnual(), sumar303("c_reagyp"), r.dReagyp],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumen), "Resumen");
+
+  // Hoja 2: Conciliación Contabilidad ↔ Libros
+  const cont = state.contab;
+  const concilCont = [
+    ["CONCILIACIÓN CONTABILIDAD ↔ LIBROS"],
+    [],
+    ["Concepto", "Libro (€)", "Contabilidad (€)", "Diferencia (€)", "Estado"],
+    ["477 H.P. IVA repercutido", totalLibroDevengadoAnual(), cont.c477, totalLibroDevengadoAnual() - cont.c477, evalEstado(totalLibroDevengadoAnual(), cont.c477)],
+    ["472 H.P. IVA soportado", totalLibroDeducibleAnual(), cont.c472, totalLibroDeducibleAnual() - cont.c472, evalEstado(totalLibroDeducibleAnual(), cont.c472)],
+    ["Saldo neto IVA (4750-4700)", totalLibroDevengadoAnual() - totalLibroDeducibleAnual(), cont.c4750 - cont.c4700,
+     (totalLibroDevengadoAnual() - totalLibroDeducibleAnual()) - (cont.c4750 - cont.c4700),
+     evalEstado(totalLibroDevengadoAnual() - totalLibroDeducibleAnual(), cont.c4750 - cont.c4700)],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(concilCont), "1. Cont vs Libros");
+
+  // Hoja 3: Conciliación Libros ↔ 303 (los 4 trimestres)
+  const concil303 = [["CONCILIACIÓN LIBROS ↔ MODELO 303"], [],
+    ["Trimestre", "Concepto", "Libro (€)", "Modelo 303 (€)", "Diferencia (€)", "% dif", "Estado"]];
+  for (let t = 1; t <= 4; t++) {
+    const emit = totalesLibroEmitidasPorTipo(t);
+    const reci = totalesLibroRecibidasPorTipo(t);
+    const m = state.trimestres[t].m303;
+    const reagypT = totalReagypTrimestre(t);
+    const filas = [
+      ["Devengado 21 % cuota", emit[21].cuota, m.c21],
+      ["Devengado 10 % cuota", emit[10].cuota, m.c10],
+      ["Devengado 4 % cuota", emit[4].cuota, m.c4],
+      ["Deducible total", reci[21].cuota + reci[10].cuota + reci[4].cuota, m.c_ded_corr + m.c_ded_inv + m.c_ded_intra],
+      ["Compensación REAGYP", reagypT, m.c_reagyp],
+    ];
+    filas.forEach(([c, lib, mod]) => {
+      const ev = evaluarDif(lib, mod);
+      concil303.push([`${t}T`, c, lib, mod, ev.dif, ev.pct, ev.estado]);
+    });
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(concil303), "2. Libros vs 303");
+
+  // Hoja 4: Conciliación Σ 303 ↔ 390
+  if (state.presenta390) {
+    const concil390 = [["CONCILIACIÓN Σ 303 ↔ MODELO 390"], [],
+      ["Concepto", "Σ 303 (€)", "Modelo 390 (€)", "Diferencia (€)", "Estado"]];
+    [["Cuota devengada 21 %", sumar303("c21"), state.m390.c21],
+     ["Cuota devengada 10 %", sumar303("c10"), state.m390.c10],
+     ["Cuota devengada 4 %", sumar303("c4"), state.m390.c4],
+     ["Cuota deducible total", sumar303("c_ded_corr") + sumar303("c_ded_inv") + sumar303("c_ded_intra"), state.m390.c_ded],
+     ["Compensación REAGYP", sumar303("c_reagyp"), state.m390.c_reagyp || 0],
+    ].forEach(([c, a, b]) => {
+      const ev = evaluarDif(a, b);
+      concil390.push([c, a, b, ev.dif, ev.estado]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(concil390), "3. 303 vs 390");
+  }
+
+  // Hojas 5-8: Detalle facturas por trimestre
+  for (let t = 1; t <= 4; t++) {
+    const emit = state.trimestres[t].emitidas;
+    const reci = state.trimestres[t].recibidas;
+    if (emit.length || reci.length) {
+      const detalle = [
+        [`DETALLE FACTURAS — ${t}T`], [],
+        ["EMITIDAS"],
+        ["Fecha", "Nº factura", "Cliente", "Tipo IVA", "Base", "Cuota"],
+        ...emit.map((f) => [f.fecha, f.numero, f.contraparte, f.tipoIva, num(f.base), num(f.cuota)]),
+        [], ["RECIBIDAS"],
+        ["Fecha", "Nº factura", "Proveedor", "Tipo IVA", "Base", "Cuota", "% Deducible", "REAGYP"],
+        ...reci.map((f) => [f.fecha, f.numero, f.contraparte, f.tipoIva, num(f.base), num(f.cuota),
+                            num(f.deducible || 100), esReagyp(f.tipoIva) ? "Sí" : ""]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detalle), `${t}T detalle`);
+    }
+  }
+
+  const fname = `Conciliacion_IVA_${ent.nif || "INFORME"}_${state.ejercicio}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  flash("Informe generado.");
+}
+
+function sumar303(k) {
+  return state.trimestres[1].m303[k] + state.trimestres[2].m303[k] +
+         state.trimestres[3].m303[k] + state.trimestres[4].m303[k];
+}
+
+function evalEstado(a, b) {
+  const r = evaluarDif(a, b);
+  return r.estado;
 }
 
 function renderReconContab() {
@@ -360,6 +577,7 @@ function renderRecon303() {
   const reci = totalesLibroRecibidasPorTipo(tri);
   const m = state.trimestres[tri].m303;
 
+  const reagypLib = totalReagypTrimestre(tri);
   const filas = [
     ["Devengado 21 % — base (01)", emit[21].base, m.b21],
     ["Devengado 21 % — cuota (03)", emit[21].cuota, m.c21],
@@ -369,6 +587,7 @@ function renderRecon303() {
     ["Devengado 4 % — cuota (09)", emit[4].cuota, m.c4],
     ["Deducible — cuota total (29+31+37)", reci[21].cuota + reci[10].cuota + reci[4].cuota,
       m.c_ded_corr + m.c_ded_inv + m.c_ded_intra],
+    ["Compensación REAGYP (41)", reagypLib, m.c_reagyp],
   ];
 
   const t = document.getElementById("recon-303");
@@ -411,6 +630,7 @@ function renderRecon390() {
     ["Cuota devengada 4 %", sum303("c4"), state.m390.c4],
     ["Base deducible total", dedBase303, state.m390.b_ded],
     ["Cuota deducible total", dedTotal303, state.m390.c_ded],
+    ["Compensación REAGYP", sum303("c_reagyp"), state.m390.c_reagyp || 0],
   ];
 
   t.innerHTML = `
@@ -454,6 +674,7 @@ function recogerTodo() {
 /* ---------- Render global ---------- */
 function renderTodo() {
   document.getElementById("ejercicio").value = state.ejercicio;
+  renderEntidad();
   renderLibros();
   render303();
   render390();
@@ -604,10 +825,17 @@ function normalizarTipoIva(v) {
   const n = parseFloat(s);
   if (!isFinite(n)) return "21";
   if (Math.abs(n - 21) < 0.5) return "21";
-  if (Math.abs(n - 10) < 0.5) return "10";
+  if (Math.abs(n - 12) < 0.4) return "12";
+  if (Math.abs(n - 10.5) < 0.4) return "10.5";
+  if (Math.abs(n - 10) < 0.4) return "10";
   if (Math.abs(n - 4) < 0.5) return "4";
   if (Math.abs(n - 0) < 0.5) return "0";
   return "21";
+}
+
+function esReagyp(tipoIva) {
+  const n = parseFloat(tipoIva);
+  return TIPOS_REAGYP.some((t) => Math.abs(n - t) < 0.4);
 }
 
 function parseFecha(v) {
@@ -631,9 +859,36 @@ function parseFecha(v) {
 async function leerArchivoExcel(file) {
   const data = await file.arrayBuffer();
   const wb = XLSX.read(data, { cellDates: false });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
-  return rows;
+  const hojas = wb.SheetNames.map((name) => {
+    const sheet = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+    return { nombre: name, rows: rows.filter((r) => r.some((c) => c !== "" && c != null)) };
+  }).filter((h) => h.rows.length > 0);
+  return hojas;
+}
+
+async function elegirHoja(hojas) {
+  if (hojas.length === 1) return hojas[0].rows;
+  return new Promise((resolve) => {
+    document.getElementById("modal-title").textContent = "Selecciona la hoja";
+    const body = document.getElementById("modal-body");
+    body.innerHTML = `
+      <p class="preview-meta">El archivo tiene ${hojas.length} hojas. ¿Cuál quieres importar?</p>
+      <div id="hoja-list">
+        ${hojas.map((h, i) => `
+          <label class="mapping-row" style="cursor:pointer;">
+            <input type="radio" name="hoja-sel" value="${i}" ${i === 0 ? "checked" : ""} />
+            <span><b>${escapeHtml(h.nombre)}</b> · ${h.rows.length} filas</span>
+          </label>
+        `).join("")}
+      </div>
+    `;
+    abrirModal(() => {
+      const idx = parseInt(document.querySelector('input[name="hoja-sel"]:checked').value, 10);
+      resolve(hojas[idx].rows);
+      return true;
+    });
+  });
 }
 
 function importarLibroDesdeFilas(filas, tipo, tri) {
@@ -758,18 +1013,35 @@ const num303 = (s) => {
 };
 
 function detectarCasillas303(texto) {
-  // Patrón: número de casilla seguido (cerca) de un importe
-  // El PDF de la AEAT pinta: "[01] 100.000,00" o tablas con número y cuantía
+  // Estrategia: probar varios patrones por casilla y quedarnos con el valor
+  // más plausible. Se ignoran los matches con valor 0 a no ser que sean los únicos.
   const out = {};
+  const limpio = texto.replace(/ /g, " ");
+
+  const patrones = (cas) => [
+    // "01 100.000,00" / "[01] 100.000,00" / "01: 100.000,00"
+    new RegExp(`(?:^|[\\s\\[\\(])${cas}\\s*[\\]\\)\\.:\\-]?\\s+([\\-+]?\\(?[\\d][\\d.,]*\\)?)`, "g"),
+    // "Casilla 01 100.000,00"
+    new RegExp(`[Cc]asilla\\s*${cas}\\s*[\\.:\\-]?\\s+([\\-+]?\\(?[\\d][\\d.,]*\\)?)`, "g"),
+    // "(01) 100.000,00"
+    new RegExp(`\\(${cas}\\)\\s+([\\-+]?\\(?[\\d][\\d.,]*\\)?)`, "g"),
+  ];
+
   const buscar = (cas) => {
-    const re = new RegExp(`(?:^|\\s|\\[)${cas}\\s*[\\]\\)\\.:\\-]?\\s+([\\-+]?[0-9.,]+)`, "g");
-    let last = null, m;
-    while ((m = re.exec(texto)) !== null) {
-      const v = num303(m[1]);
-      if (v !== 0) last = v;
+    const candidatos = [];
+    for (const re of patrones(cas)) {
+      let m;
+      while ((m = re.exec(limpio)) !== null) {
+        const v = num303(m[1]);
+        if (v !== 0) candidatos.push(v);
+      }
     }
-    return last;
+    if (!candidatos.length) return null;
+    // Elegir el de mayor valor absoluto (suele ser el importe real, no porcentajes)
+    candidatos.sort((a, b) => Math.abs(b) - Math.abs(a));
+    return candidatos[0];
   };
+
   const casillas = {
     b21: "01", c21: "03",
     b10: "04", c10: "06",
@@ -779,6 +1051,7 @@ function detectarCasillas303(texto) {
     b_ded_corr: "28", c_ded_corr: "29",
     b_ded_inv:  "30", c_ded_inv:  "31",
     b_ded_intra: "36", c_ded_intra: "37",
+    c_reagyp: "41", // Compensaciones REAGYP
   };
   Object.entries(casillas).forEach(([k, c]) => {
     const v = buscar(c);
@@ -787,22 +1060,37 @@ function detectarCasillas303(texto) {
   return out;
 }
 
+// Detecta período (trimestre + ejercicio) en PDF del Modelo 303
+function detectarPeriodo303(texto) {
+  const t = texto.toUpperCase();
+  let trimestre = null, ejercicio = null;
+  const mTri = t.match(/\b([1-4])\s*T(?:RIMESTRE)?\b/);
+  if (mTri) trimestre = parseInt(mTri[1], 10);
+  const mPer = t.match(/PER[ÍI]ODO\D{0,5}([0-3])([1-4])/);
+  if (mPer && !trimestre) trimestre = parseInt(mPer[2], 10);
+  const mEj = t.match(/\b(20\d{2})\b/);
+  if (mEj) ejercicio = parseInt(mEj[1], 10);
+  return { trimestre, ejercicio };
+}
+
 async function importarPdf303(file, tri) {
   try {
     const txt = await extraerTextoPdf(file);
     const detect = detectarCasillas303(txt);
+    const periodo = detectarPeriodo303(txt);
     if (Object.keys(detect).length === 0) {
       flash("No se han podido detectar casillas en el PDF.");
       return;
     }
-    abrirModalPreview303(detect, tri, txt);
+    const triFinal = periodo.trimestre || tri;
+    abrirModalPreview303(detect, triFinal, txt, periodo);
   } catch (e) {
     flash("Error leyendo PDF: " + e.message);
   }
 }
 
-function abrirModalPreview303(detect, tri, textoOrig) {
-  document.getElementById("modal-title").textContent = `Importar Modelo 303 — ${tri}T`;
+function abrirModalPreview303(detect, tri, textoOrig, periodo) {
+  document.getElementById("modal-title").textContent = `Importar Modelo 303`;
   const body = document.getElementById("modal-body");
   const labels = {
     b21: "Base 21 % (01)", c21: "Cuota 21 % (03)",
@@ -813,9 +1101,22 @@ function abrirModalPreview303(detect, tri, textoOrig) {
     b_ded_corr: "Base deducible corriente (28)", c_ded_corr: "Cuota deducible corriente (29)",
     b_ded_inv: "Base inversión (30)", c_ded_inv: "Cuota inversión (31)",
     b_ded_intra: "Base intracom. ded. (36)", c_ded_intra: "Cuota intracom. ded. (37)",
+    c_reagyp: "Compensación REAGYP (41)",
   };
+  const detectInfo = periodo && (periodo.trimestre || periodo.ejercicio)
+    ? `Detectado: ${periodo.trimestre ? periodo.trimestre + "T " : ""}${periodo.ejercicio || ""}`
+    : "Período no detectado, usando trimestre activo.";
   body.innerHTML = `
-    <p class="preview-meta">Verifica los importes detectados. Puedes editarlos antes de aplicar.</p>
+    <p class="preview-meta">${detectInfo} Asigna el trimestre destino y revisa los importes detectados.</p>
+    <div class="mapping-row">
+      <label>Trimestre destino</label>
+      <select id="pdf-tri-target">
+        <option value="1" ${tri === 1 ? "selected" : ""}>1T</option>
+        <option value="2" ${tri === 2 ? "selected" : ""}>2T</option>
+        <option value="3" ${tri === 3 ? "selected" : ""}>3T</option>
+        <option value="4" ${tri === 4 ? "selected" : ""}>4T</option>
+      </select>
+    </div>
     <div class="grid casillas">
       ${Object.keys(labels).map((k) => `
         <div class="casilla-row" style="background:#fafbfd;padding:8px;border-radius:4px;">
@@ -826,13 +1127,14 @@ function abrirModalPreview303(detect, tri, textoOrig) {
     </div>
   `;
   abrirModal(() => {
-    const m = state.trimestres[tri].m303;
+    const triDest = parseInt(document.getElementById("pdf-tri-target").value, 10);
+    const m = state.trimestres[triDest].m303;
     body.querySelectorAll("[data-pdf]").forEach((el) => {
       m[el.dataset.pdf] = num(el.value);
     });
     save();
-    if (tri === tri303Activo) render303();
-    flash(`Modelo 303 ${tri}T actualizado.`);
+    if (triDest === tri303Activo) render303();
+    flash(`Modelo 303 ${triDest}T actualizado.`);
     return true;
   });
 }
@@ -944,11 +1246,13 @@ function bindImport(id, handler) {
   });
 }
 bindImport("imp-emitidas-xlsx", async (f) => {
-  const filas = await leerArchivoExcel(f);
+  const hojas = await leerArchivoExcel(f);
+  const filas = await elegirHoja(hojas);
   importarLibroDesdeFilas(filas, "emitidas", triLibroActivo);
 });
 bindImport("imp-recibidas-xlsx", async (f) => {
-  const filas = await leerArchivoExcel(f);
+  const hojas = await leerArchivoExcel(f);
+  const filas = await elegirHoja(hojas);
   importarLibroDesdeFilas(filas, "recibidas", triLibroActivo);
 });
 bindImport("imp-emitidas-pdf", (f) => importarLibroDesdePdf(f, "emitidas", triLibroActivo));

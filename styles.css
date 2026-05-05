@@ -1,19 +1,22 @@
 :root {
-  --bg: #f5f7fb;
+  --bg: #faf6f0;
   --panel: #ffffff;
-  --border: #e3e8ef;
-  --text: #1d2433;
-  --muted: #6b7280;
-  --primary: #1f4ed8;
-  --primary-dark: #1538a8;
+  --border: #e6dccc;
+  --text: #2d2e31;
+  --muted: #6e7681;
+  --primary: #6d1228;
+  --primary-dark: #4a0c1b;
+  --primary-light: #8b1a36;
+  --beige: #ebd2ac;
+  --beige-claro: #f5e6d0;
   --ok: #0f766e;
-  --ok-bg: #ecfdf5;
-  --warn: #b45309;
-  --warn-bg: #fff7ed;
-  --err: #b91c1c;
-  --err-bg: #fef2f2;
-  --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 4px 12px rgba(15, 23, 42, .04);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --ok-bg: #c6efce;
+  --warn: #8a5a00;
+  --warn-bg: #ffd966;
+  --err: #9c0006;
+  --err-bg: #ffc7ce;
+  --shadow: 0 1px 2px rgba(45, 46, 49, .04), 0 4px 12px rgba(45, 46, 49, .06);
+  font-family: Calibri, "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -297,3 +300,21 @@ label.btn { display: inline-block; }
 }
 .mapping-row select { padding: 4px 6px; }
 .preview-meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+
+/* Resumen de riesgo */
+.risk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+}
+.risk-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--beige-claro);
+  border-radius: 6px;
+}
+.risk-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.risk-item strong { font-size: 16px; font-family: ui-monospace, SFMono-Regular, monospace; }
+.badge.big { font-size: 14px; padding: 4px 14px; }
