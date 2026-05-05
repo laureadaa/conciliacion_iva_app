@@ -363,3 +363,28 @@ label.btn { display: inline-block; }
   background: #fafbfd;
 }
 .dropzone.secondary strong { color: var(--text); font-size: 12px; font-weight: 500; }
+
+.formula-block { font-size: 13px; }
+.formula-block p { margin: 8px 0 4px; }
+pre {
+  background: var(--beige-claro);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  margin: 6px 0 10px;
+  color: var(--text);
+}
+#desglose-vivo .breakdown-row {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  padding: 6px 10px;
+  background: #fafbfd;
+  border-left: 3px solid var(--primary);
+  margin: 4px 0;
+  border-radius: 0 4px 4px 0;
+}
+#desglose-vivo h4 { margin: 12px 0 6px; font-size: 13px; color: var(--primary); }

@@ -37,6 +37,7 @@
   <button class="tab" data-tab="m390" role="tab">3. Modelo 390</button>
   <button class="tab" data-tab="contab" role="tab">4. Contabilidad</button>
   <button class="tab" data-tab="result" role="tab">5. Conciliación</button>
+  <button class="tab" data-tab="formulas" role="tab">📐 Fórmulas</button>
 </nav>
 
 <main>
@@ -86,12 +87,7 @@
       <p>Introduce las facturas emitidas y recibidas por trimestre. La aplicación calcula bases y cuotas por tipo.</p>
     </div>
 
-    <div class="trimester-switch">
-      <label><input type="radio" name="tri-libro" value="1" checked /> 1T</label>
-      <label><input type="radio" name="tri-libro" value="2" /> 2T</label>
-      <label><input type="radio" name="tri-libro" value="3" /> 3T</label>
-      <label><input type="radio" name="tri-libro" value="4" /> 4T</label>
-    </div>
+    <div class="trimester-switch" data-switch="tri-libro"></div>
 
     <div class="grid two">
       <div class="card">
@@ -110,7 +106,7 @@
           <strong>📄 ...o sube un PDF del Libro de Ventas</strong>
           <span>Detección automática (best-effort)</span>
         </label>
-        <input id="imp-emitidas-pdf" type="file" accept="application/pdf" hidden />
+        <input id="imp-emitidas-pdf" type="file" accept="application/pdf" multiple hidden />
         <div class="table-scroll">
           <table class="data-table" id="tbl-emitidas">
             <colgroup>
@@ -153,7 +149,7 @@
           <strong>📄 ...o sube un PDF del Libro de Compras</strong>
           <span>Detección automática (best-effort)</span>
         </label>
-        <input id="imp-recibidas-pdf" type="file" accept="application/pdf" hidden />
+        <input id="imp-recibidas-pdf" type="file" accept="application/pdf" multiple hidden />
         <div class="table-scroll">
           <table class="data-table" id="tbl-recibidas">
             <colgroup>
@@ -192,15 +188,10 @@
     </div>
 
     <div class="row-bar">
-      <div class="trimester-switch">
-        <label><input type="radio" name="tri-303" value="1" checked /> 1T</label>
-        <label><input type="radio" name="tri-303" value="2" /> 2T</label>
-        <label><input type="radio" name="tri-303" value="3" /> 3T</label>
-        <label><input type="radio" name="tri-303" value="4" /> 4T</label>
-      </div>
+      <div class="trimester-switch" data-switch="tri-303"></div>
       <div class="header-actions">
-        <label class="btn small" for="imp-303-pdf">Importar PDF Modelo 303</label>
-        <input id="imp-303-pdf" type="file" accept="application/pdf" hidden />
+        <label class="btn small primary" for="imp-303-pdf">📄 Subir PDFs del Modelo 303 (varios a la vez)</label>
+        <input id="imp-303-pdf" type="file" accept="application/pdf" multiple hidden />
       </div>
     </div>
 
@@ -374,12 +365,7 @@
 
     <div class="card">
       <h3>2. Libros de IVA ↔ Modelo 303 (por trimestre)</h3>
-      <div class="trimester-switch">
-        <label><input type="radio" name="tri-result" value="1" checked /> 1T</label>
-        <label><input type="radio" name="tri-result" value="2" /> 2T</label>
-        <label><input type="radio" name="tri-result" value="3" /> 3T</label>
-        <label><input type="radio" name="tri-result" value="4" /> 4T</label>
-      </div>
+      <div class="trimester-switch" data-switch="tri-result"></div>
       <table class="recon-table" id="recon-303"></table>
       <div class="hint" id="hint-303"></div>
     </div>
@@ -387,6 +373,14 @@
     <div class="card">
       <h3>3. Σ Modelo 303 ↔ Modelo 390 (anual)</h3>
       <table class="recon-table" id="recon-390"></table>
+    </div>
+
+    <div class="card">
+      <div class="row-bar">
+        <h3>🔍 Desglose de cálculos (en vivo)</h3>
+        <label class="check"><input type="checkbox" id="show-formulas" /> Mostrar fórmulas con números reales</label>
+      </div>
+      <div id="desglose-vivo" hidden></div>
     </div>
 
     <div class="card alert-card" id="causas-card" hidden>
@@ -400,6 +394,113 @@
         <li>Asientos directos a 477/472 sin pasar por libro.</li>
         <li>IVA de inmovilizado mal periodificado, regularizaciones de prorrata (art. 105 LIVA) o de bienes de inversión (art. 107 LIVA).</li>
       </ul>
+    </div>
+  </section>
+  <!-- ============== FÓRMULAS ============== -->
+  <section class="panel" id="tab-formulas">
+    <div class="panel-head">
+      <h2>📐 Fórmulas aplicadas</h2>
+      <p>Aquí tienes todas las fórmulas que usa la aplicación, paso a paso, para que puedas verificar que los números cuadran.</p>
+    </div>
+
+    <div class="card">
+      <h3>1. Totales del libro de IVA por trimestre/mes</h3>
+      <div class="formula-block">
+        <p><strong>Por tipo (21 %, 10 %, 4 %, 12 %, 10,5 %):</strong></p>
+        <pre>base_tipo  = Σ ( base_factura  donde tipoIVA = X )
+cuota_tipo = Σ ( cuota_factura donde tipoIVA = X )</pre>
+        <p><strong>Compras: cuota efectiva ajustada por % deducible:</strong></p>
+        <pre>cuota_deducible = cuota_factura × (% deducible / 100)</pre>
+        <p><strong>REAGYP</strong> (tipos 12 % y 10,5 %) se contabiliza en bucket separado, no como deducible normal:</p>
+        <pre>cuota_REAGYP = Σ ( cuota_factura  donde tipoIVA ∈ {12 ; 10,5} )</pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>2. Resumen del Modelo 303 (autoliquidación)</h3>
+      <pre>Total cuota devengada (27) = c21 + c10 + c4 + c_intra + c_isp
+Total a deducir (45)       = c_ded_corr + c_ded_inv + c_ded_intra
+Resultado régimen gral (46)= (27) − (45)
+A ingresar / a devolver (71) = (46)   [simplificado, sin compensaciones]</pre>
+      <p class="hint">Casillas: 01/03 → base/cuota 21 % · 04/06 → 10 % · 07/09 → 4 % · 10/11 → intracom · 12/13 → ISP · 28/29 → ded. corriente · 30/31 → ded. inversión · 36/37 → ded. intracom · 41 → compensación REAGYP.</p>
+    </div>
+
+    <div class="card">
+      <h3>3. Conciliación Contabilidad ↔ Libros (anual)</h3>
+      <pre>477 H.P. IVA repercutido    Libro: Σ cuotas devengadas anuales libro emitidas
+                            Contab: saldo H cuenta 477
+
+472 H.P. IVA soportado      Libro: Σ cuotas deducibles anuales (sin REAGYP)
+                            Contab: saldo D cuenta 472
+
+Saldo neto IVA              Libro: 477 − 472 (anual)
+                            Contab: 4750 − 4700</pre>
+    </div>
+
+    <div class="card">
+      <h3>4. Conciliación Libros ↔ Modelo 303 (por período)</h3>
+      <pre>Para cada trimestre (o mes en SII):
+  Devengado 21 % cuota  Libro: Σ cuotas emitidas con tipoIVA = 21
+                        303:   casilla 03
+
+  Devengado 10 % cuota  Libro: Σ cuotas emitidas con tipoIVA = 10
+                        303:   casilla 06
+
+  Devengado 4 % cuota   Libro: Σ cuotas emitidas con tipoIVA = 4
+                        303:   casilla 09
+
+  Deducible total       Libro: Σ cuotas recibidas (sin REAGYP) × %ded
+                        303:   casilla 29 + 31 + 37
+
+  Compensación REAGYP   Libro: Σ cuotas con tipoIVA ∈ {12 ; 10,5}
+                        303:   casilla 41</pre>
+    </div>
+
+    <div class="card">
+      <h3>5. Conciliación Σ 303 ↔ Modelo 390 (anual)</h3>
+      <pre>Σ 303 (concepto) = trim1 + trim2 + trim3 + trim4    [o suma de los 12 meses]
+390 (concepto)   = casilla equivalente del modelo 390
+Diferencia       = Σ 303 − 390</pre>
+      <p class="hint">El modelo 390 no se presenta si tributas por SII o REDEME. En esos casos la conciliación anual se hace contra los libros AEAT.</p>
+    </div>
+
+    <div class="card">
+      <h3>6. Cálculo de la diferencia y estado por línea</h3>
+      <pre>diferencia    = libro − modelo
+% diferencia  = |diferencia| / max(|libro|, |modelo|) × 100
+
+Estado:
+  OK       si  |diferencia| ≤ 1 €  Y  % diferencia ≤ 1 %
+  AVISO    si  |diferencia| &gt; 1 €  pero % diferencia ≤ 1 %
+  REVISAR  si  |diferencia| &gt; 1 €  Y  % diferencia &gt; 1 %</pre>
+      <p class="hint">Tolerancia configurada: <strong>±1 €</strong> y <strong>±1 %</strong> por línea (estándar de auditoría).</p>
+    </div>
+
+    <div class="card">
+      <h3>7. Clasificación de riesgo global</h3>
+      <pre>dDev     = | IVA devengado libro  − Σ cuotas devengadas 303 |
+dDed     = | IVA deducible libro  − Σ deducibles 303 |
+dReagyp  = | REAGYP libro         − Σ casilla 41 |
+
+Diferencia total  = dDev + dDed + dReagyp
+Desviación global = Diferencia total / (dev303 + ded303 + reagyp303) × 100
+
+Riesgo:
+  BAJO       si  Dif. total ≤ 4 €   Y  desviación ≤ 1 %
+  MODERADO   si  Dif. total &gt; 4 €   O  desviación &gt; 1 %
+  ALTO       si  Dif. total &gt; 20 €  O  desviación &gt; 5 %</pre>
+    </div>
+
+    <div class="card">
+      <h3>8. Detección automática del tipo de IVA en imports</h3>
+      <pre>Para cada celda "Tipo IVA" del Excel/CSV:
+  21 %  si | n − 21  | &lt; 0,5
+  12 %  si | n − 12  | &lt; 0,4   → REAGYP
+  10,5% si | n − 10,5| &lt; 0,4   → REAGYP
+  10 %  si | n − 10  | &lt; 0,4
+  4 %   si | n − 4   | &lt; 0,5
+  0 %   si | n − 0   | &lt; 0,5
+  por defecto: 21 %</pre>
     </div>
   </section>
 </main>

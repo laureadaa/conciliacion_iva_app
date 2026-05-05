@@ -8,12 +8,27 @@
    Tolerancia: ±1 € o ±1 % por línea.
    ========================================================= */
 
-const STORAGE_KEY = "iva-conciliacion-v2";
+const STORAGE_KEY = "iva-conciliacion-v3";
 const TOLERANCIA_EUR = 1.0;
 const TOLERANCIA_PCT = 1.0;
 
 const TIPOS_IVA = ["21", "10", "4", "12", "10.5", "0"];
 const TIPOS_REAGYP = [12, 10.5];
+
+const TRIMESTRES = ["1T", "2T", "3T", "4T"];
+const MESES = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+const NOMBRE_MES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+function periodKeys(modo) {
+  return modo === "mensual" ? MESES : TRIMESTRES;
+}
+function periodLabel(key, modo) {
+  if (!modo) modo = state.modoDeclaracion;
+  if (modo === "mensual") return `${NOMBRE_MES[parseInt(key, 10)]}`;
+  return key;
+}
+function periodShort(key) { return key; }
 
 const empty303 = () => ({
   b21: 0, c21: 0,
@@ -27,25 +42,72 @@ const empty303 = () => ({
   c_reagyp: 0,
 });
 
+function emptyBucket() {
+  return { emitidas: [], recibidas: [], m303: empty303() };
+}
+
+function emptyPeriodos(modo) {
+  const out = {};
+  periodKeys(modo).forEach((k) => { out[k] = emptyBucket(); });
+  return out;
+}
+
 const defaultState = () => ({
   ejercicio: 2025,
   presenta390: true,
   modoDeclaracion: "trimestral",
   entidad: { nombre: "", nif: "", sector: "", periodoInicio: "", periodoFin: "" },
-  trimestres: {
-    1: { emitidas: [], recibidas: [], m303: empty303() },
-    2: { emitidas: [], recibidas: [], m303: empty303() },
-    3: { emitidas: [], recibidas: [], m303: empty303() },
-    4: { emitidas: [], recibidas: [], m303: empty303() },
+  periodos: {
+    trimestral: emptyPeriodos("trimestral"),
+    mensual: emptyPeriodos("mensual"),
   },
   m390: { b21: 0, c21: 0, b10: 0, c10: 0, b4: 0, c4: 0, b_ded: 0, c_ded: 0, c_reagyp: 0 },
   contab: { c477: 0, c472: 0, c4750: 0, c4700: 0 },
 });
 
-let state = load() || defaultState();
-let triLibroActivo = 1;
-let tri303Activo = 1;
-let triResultActivo = 1;
+function activePeriodos() {
+  return state.periodos[state.modoDeclaracion];
+}
+function bucket(key) {
+  const ap = activePeriodos();
+  if (!ap[key]) ap[key] = emptyBucket();
+  return ap[key];
+}
+function todosLosBuckets() {
+  return periodKeys(state.modoDeclaracion).map((k) => bucket(k));
+}
+
+function migrar(s) {
+  if (!s) return null;
+  // Migración desde v1/v2 (state.trimestres) a v3 (state.periodos)
+  if (s.trimestres && !s.periodos) {
+    const nuevos = emptyPeriodos("trimestral");
+    [1, 2, 3, 4].forEach((n) => {
+      const k = TRIMESTRES[n - 1];
+      if (s.trimestres[n]) nuevos[k] = s.trimestres[n];
+    });
+    s.periodos = { trimestral: nuevos, mensual: emptyPeriodos("mensual") };
+    delete s.trimestres;
+  }
+  // Asegurar buckets en ambos modos
+  if (!s.periodos) s.periodos = { trimestral: emptyPeriodos("trimestral"), mensual: emptyPeriodos("mensual") };
+  if (!s.periodos.trimestral) s.periodos.trimestral = emptyPeriodos("trimestral");
+  if (!s.periodos.mensual) s.periodos.mensual = emptyPeriodos("mensual");
+  // Asegurar todas las keys en cada modo
+  ["trimestral", "mensual"].forEach((modo) => {
+    periodKeys(modo).forEach((k) => {
+      if (!s.periodos[modo][k]) s.periodos[modo][k] = emptyBucket();
+    });
+  });
+  if (!s.modoDeclaracion) s.modoDeclaracion = "trimestral";
+  if (!s.entidad) s.entidad = { nombre: "", nif: "", sector: "", periodoInicio: "", periodoFin: "" };
+  return s;
+}
+
+let state = migrar(load()) || defaultState();
+let periodoLibroActivo = periodKeys(state.modoDeclaracion)[0];
+let periodo303Activo = periodKeys(state.modoDeclaracion)[0];
+let periodoResultActivo = periodKeys(state.modoDeclaracion)[0];
 
 /* ---------- Utilidades ---------- */
 const fmt = (n) =>
@@ -77,25 +139,26 @@ document.querySelectorAll(".tab").forEach((t) => {
   });
 });
 
-/* ---------- Selectores trimestre ---------- */
-document.querySelectorAll('input[name="tri-libro"]').forEach((r) => {
-  r.addEventListener("change", (e) => {
-    triLibroActivo = parseInt(e.target.value, 10);
-    renderLibros();
-  });
-});
-document.querySelectorAll('input[name="tri-303"]').forEach((r) => {
-  r.addEventListener("change", (e) => {
-    tri303Activo = parseInt(e.target.value, 10);
-    render303();
-  });
-});
-document.querySelectorAll('input[name="tri-result"]').forEach((r) => {
-  r.addEventListener("change", (e) => {
-    triResultActivo = parseInt(e.target.value, 10);
-    renderResultados();
-  });
-});
+/* ---------- Selectores período (dinámicos) ---------- */
+function renderPeriodSwitchers() {
+  const labelMode = state.modoDeclaracion === "mensual" ? "month" : "trim";
+  const keys = periodKeys(state.modoDeclaracion);
+  const labelFor = (k) => state.modoDeclaracion === "mensual" ? `${k} ${NOMBRE_MES[parseInt(k, 10)].slice(0, 3)}` : k;
+
+  function renderOne(containerName, activeRef, onChange) {
+    const cont = document.querySelector(`.trimester-switch[data-switch="${containerName}"]`);
+    if (!cont) return;
+    cont.innerHTML = keys.map((k) => `
+      <label><input type="radio" name="${containerName}" value="${k}" ${k === activeRef() ? "checked" : ""} /> ${labelFor(k)}</label>
+    `).join("");
+    cont.querySelectorAll("input").forEach((r) => {
+      r.addEventListener("change", (e) => onChange(e.target.value));
+    });
+  }
+  renderOne("tri-libro", () => periodoLibroActivo, (v) => { periodoLibroActivo = v; renderLibros(); });
+  renderOne("tri-303", () => periodo303Activo, (v) => { periodo303Activo = v; render303(); });
+  renderOne("tri-result", () => periodoResultActivo, (v) => { periodoResultActivo = v; renderResultados(); });
+}
 
 /* ---------- Botones ---------- */
 document.getElementById("btn-guardar").addEventListener("click", () => {
@@ -120,7 +183,7 @@ document.getElementById("btn-ejemplo").addEventListener("click", () => {
 document.querySelectorAll("[data-add]").forEach((b) => {
   b.addEventListener("click", () => {
     const tipo = b.dataset.add;
-    const t = state.trimestres[triLibroActivo];
+    const t = bucket(periodoLibroActivo);
     const fila = tipo === "emitidas"
       ? { fecha: "", numero: "", contraparte: "", tipoIva: "21", base: 0, cuota: 0 }
       : { fecha: "", numero: "", contraparte: "", tipoIva: "21", base: 0, cuota: 0, deducible: 100 };
@@ -134,6 +197,7 @@ document.getElementById("ejercicio").addEventListener("input", (e) => {
 });
 
 document.getElementById("btn-export").addEventListener("click", exportarInformeExcel);
+document.getElementById("show-formulas").addEventListener("change", renderDesgloseVivo);
 
 document.getElementById("presenta-390").addEventListener("change", (e) => {
   state.presenta390 = e.target.checked;
@@ -143,7 +207,7 @@ document.getElementById("presenta-390").addEventListener("change", (e) => {
 
 /* ---------- Render: Libros ---------- */
 function renderLibros() {
-  const t = state.trimestres[triLibroActivo];
+  const t = bucket(periodoLibroActivo);
   renderTablaFacturas("emitidas", t.emitidas);
   renderTablaFacturas("recibidas", t.recibidas);
   renderTotalesTipo();
@@ -204,7 +268,7 @@ function renderTablaFacturas(tipo, filas) {
 }
 
 function actualizarFooterTabla(tipo) {
-  const t = state.trimestres[triLibroActivo];
+  const t = bucket(periodoLibroActivo);
   const filas = t[tipo];
   const totalBase = filas.reduce((a, f) => a + num(f.base), 0);
   const totalCuota = filas.reduce((a, f) => {
@@ -217,7 +281,7 @@ function actualizarFooterTabla(tipo) {
 
 function renderTotalesTipo() {
   ["emitidas", "recibidas"].forEach((tipo) => {
-    const filas = state.trimestres[triLibroActivo][tipo];
+    const filas = bucket(periodoLibroActivo)[tipo];
     const porTipo = {};
     filas.forEach((f) => {
       const k = f.tipoIva;
@@ -236,7 +300,7 @@ function renderTotalesTipo() {
 
 /* ---------- Render: Modelo 303 ---------- */
 function render303() {
-  const m = state.trimestres[tri303Activo].m303;
+  const m = bucket(periodo303Activo).m303;
   document.querySelectorAll("[data-303]").forEach((el) => {
     el.value = m[el.dataset["303"]] ?? 0;
     el.oninput = () => {
@@ -248,7 +312,7 @@ function render303() {
 }
 
 function actualizarResumen303() {
-  const m = state.trimestres[tri303Activo].m303;
+  const m = bucket(periodo303Activo).m303;
   const dev = m.c21 + m.c10 + m.c4 + m.c_intra + m.c_isp;
   const ded = m.c_ded_corr + m.c_ded_inv + m.c_ded_intra;
   const res = dev - ded;
@@ -287,14 +351,28 @@ function renderEntidad() {
   const sel = document.getElementById("modo-decl");
   if (sel) {
     sel.value = state.modoDeclaracion;
-    sel.onchange = () => { state.modoDeclaracion = sel.value; };
+    sel.onchange = () => {
+      state.modoDeclaracion = sel.value;
+      // Asegurar que el modo destino tenga todas sus claves
+      periodKeys(state.modoDeclaracion).forEach((k) => {
+        if (!state.periodos[state.modoDeclaracion][k]) {
+          state.periodos[state.modoDeclaracion][k] = emptyBucket();
+        }
+      });
+      const keys = periodKeys(state.modoDeclaracion);
+      periodoLibroActivo = keys.includes(periodoLibroActivo) ? periodoLibroActivo : keys[0];
+      periodo303Activo = keys.includes(periodo303Activo) ? periodo303Activo : keys[0];
+      periodoResultActivo = keys.includes(periodoResultActivo) ? periodoResultActivo : keys[0];
+      save();
+      renderTodo();
+    };
   }
 }
 
 /* ---------- Cálculos ---------- */
-function totalesLibroEmitidasPorTipo(tri) {
+function totalesLibroEmitidasPorTipo(periodo) {
   const r = { 21: { base: 0, cuota: 0 }, 10: { base: 0, cuota: 0 }, 4: { base: 0, cuota: 0 }, 0: { base: 0, cuota: 0 } };
-  state.trimestres[tri].emitidas.forEach((f) => {
+  bucket(periodo).emitidas.forEach((f) => {
     const k = f.tipoIva;
     if (!r[k]) r[k] = { base: 0, cuota: 0 };
     r[k].base += num(f.base);
@@ -303,10 +381,10 @@ function totalesLibroEmitidasPorTipo(tri) {
   return r;
 }
 
-function totalesLibroRecibidasPorTipo(tri) {
+function totalesLibroRecibidasPorTipo(periodo) {
   const r = { 21: { base: 0, cuota: 0 }, 10: { base: 0, cuota: 0 }, 4: { base: 0, cuota: 0 }, 0: { base: 0, cuota: 0 } };
-  state.trimestres[tri].recibidas.forEach((f) => {
-    if (esReagyp(f.tipoIva)) return; // REAGYP se contabiliza aparte
+  bucket(periodo).recibidas.forEach((f) => {
+    if (esReagyp(f.tipoIva)) return;
     const k = f.tipoIva;
     const ded = num(f.deducible) / 100;
     if (!r[k]) r[k] = { base: 0, cuota: 0 };
@@ -318,34 +396,34 @@ function totalesLibroRecibidasPorTipo(tri) {
 
 function totalLibroDevengadoAnual() {
   let total = 0;
-  for (let t = 1; t <= 4; t++) {
-    state.trimestres[t].emitidas.forEach((f) => total += num(f.cuota));
-  }
+  todosLosBuckets().forEach((b) => {
+    b.emitidas.forEach((f) => total += num(f.cuota));
+  });
   return total;
 }
 function totalLibroDeducibleAnual() {
   let total = 0;
-  for (let t = 1; t <= 4; t++) {
-    state.trimestres[t].recibidas.forEach((f) => {
+  todosLosBuckets().forEach((b) => {
+    b.recibidas.forEach((f) => {
       if (esReagyp(f.tipoIva)) return;
       total += num(f.cuota) * num(f.deducible) / 100;
     });
-  }
+  });
   return total;
 }
 function totalReagypAnual() {
   let total = 0;
-  for (let t = 1; t <= 4; t++) {
-    state.trimestres[t].recibidas.forEach((f) => {
+  todosLosBuckets().forEach((b) => {
+    b.recibidas.forEach((f) => {
       if (!esReagyp(f.tipoIva)) return;
       total += num(f.cuota) * num(f.deducible) / 100;
     });
-  }
+  });
   return total;
 }
-function totalReagypTrimestre(tri) {
+function totalReagypTrimestre(periodo) {
   let total = 0;
-  state.trimestres[tri].recibidas.forEach((f) => {
+  bucket(periodo).recibidas.forEach((f) => {
     if (!esReagyp(f.tipoIva)) return;
     total += num(f.cuota) * num(f.deducible) / 100;
   });
@@ -368,12 +446,12 @@ function calcularRiesgo() {
   const dedLibro = totalLibroDeducibleAnual();
   const reagypLib = totalReagypAnual();
   let dev303 = 0, ded303 = 0, reagyp303 = 0;
-  for (let t = 1; t <= 4; t++) {
-    const m = state.trimestres[t].m303;
+  todosLosBuckets().forEach((b) => {
+    const m = b.m303;
     dev303 += m.c21 + m.c10 + m.c4;
     ded303 += m.c_ded_corr + m.c_ded_inv + m.c_ded_intra;
     reagyp303 += m.c_reagyp || 0;
-  }
+  });
   const dDev = Math.abs(devLibro - dev303);
   const dDed = Math.abs(dedLibro - ded303);
   const dReagyp = Math.abs(reagypLib - reagyp303);
@@ -394,7 +472,106 @@ function renderResultados() {
   renderReconContab();
   renderRecon303();
   renderRecon390();
+  renderDesgloseVivo();
   comprobarCausas();
+}
+
+function renderDesgloseVivo() {
+  const cont = document.getElementById("desglose-vivo");
+  const toggle = document.getElementById("show-formulas");
+  if (!cont || !toggle) return;
+  cont.hidden = !toggle.checked;
+  if (!toggle.checked) return;
+
+  const pk = periodoResultActivo;
+  const periodo = periodLabel(pk);
+  const emit = totalesLibroEmitidasPorTipo(pk);
+  const reci = totalesLibroRecibidasPorTipo(pk);
+  const reagypP = totalReagypTrimestre(pk);
+  const m = bucket(pk).m303;
+
+  const facturasEmit = bucket(pk).emitidas;
+  const facturasReci = bucket(pk).recibidas;
+
+  // Listas de sumandos
+  const sumando = (lista, tipo) => lista
+    .filter((f) => String(f.tipoIva) === String(tipo))
+    .map((f) => num(f.cuota))
+    .filter((x) => x !== 0);
+  const sumandoDed = (lista, tipo) => lista
+    .filter((f) => String(f.tipoIva) === String(tipo) && !esReagyp(f.tipoIva))
+    .map((f) => round2(num(f.cuota) * num(f.deducible) / 100))
+    .filter((x) => x !== 0);
+
+  const linea = (lbl, libVal, modVal, sumandos) => {
+    const desglose = sumandos.length
+      ? sumandos.map((x) => fmt(x)).join(" + ") + " = " + fmt(libVal)
+      : fmt(libVal);
+    const dif = round2(libVal - modVal);
+    return `<div class="breakdown-row">
+      <strong>${lbl}</strong><br>
+      Libro: ${desglose}<br>
+      Modelo 303: ${fmt(modVal)}<br>
+      Diferencia = ${fmt(libVal)} − ${fmt(modVal)} = <strong>${fmt(dif)} €</strong>
+    </div>`;
+  };
+
+  const sumDev = m.c21 + m.c10 + m.c4 + m.c_intra + m.c_isp;
+  const sumDed = m.c_ded_corr + m.c_ded_inv + m.c_ded_intra;
+
+  // Riesgo: mostrar todos los pasos
+  const dev303Total = sumar303("c21") + sumar303("c10") + sumar303("c4");
+  const ded303Total = sumar303("c_ded_corr") + sumar303("c_ded_inv") + sumar303("c_ded_intra");
+  const reagyp303Total = sumar303("c_reagyp");
+  const devLib = totalLibroDevengadoAnual();
+  const dedLib = totalLibroDeducibleAnual();
+  const reagypLib = totalReagypAnual();
+  const r = calcularRiesgo();
+
+  cont.innerHTML = `
+    <h4>Período activo: ${periodo}  ·  ${facturasEmit.length} facturas emitidas, ${facturasReci.length} recibidas</h4>
+
+    ${linea("Devengado 21 % cuota (vs casilla 03)", emit[21].cuota, m.c21, sumando(facturasEmit, "21"))}
+    ${linea("Devengado 10 % cuota (vs casilla 06)", emit[10].cuota, m.c10, sumando(facturasEmit, "10"))}
+    ${linea("Devengado 4 % cuota (vs casilla 09)",  emit[4].cuota,  m.c4,  sumando(facturasEmit, "4"))}
+    ${linea("Deducible 21 % efectivo (parte 29)",   reci[21].cuota, 0,     sumandoDed(facturasReci, "21"))}
+    ${linea("Deducible 10 % efectivo (parte 29)",   reci[10].cuota, 0,     sumandoDed(facturasReci, "10"))}
+    ${linea("Compensación REAGYP (vs casilla 41)",  reagypP, m.c_reagyp,
+       facturasReci.filter((f) => esReagyp(f.tipoIva))
+                  .map((f) => round2(num(f.cuota) * num(f.deducible) / 100)))}
+
+    <h4>Resumen del 303 ${periodo}</h4>
+    <div class="breakdown-row">
+      <strong>Total cuota devengada (27)</strong> = ${fmt(m.c21)} + ${fmt(m.c10)} + ${fmt(m.c4)} + ${fmt(m.c_intra)} + ${fmt(m.c_isp)} = <strong>${fmt(sumDev)} €</strong>
+    </div>
+    <div class="breakdown-row">
+      <strong>Total a deducir (45)</strong> = ${fmt(m.c_ded_corr)} + ${fmt(m.c_ded_inv)} + ${fmt(m.c_ded_intra)} = <strong>${fmt(sumDed)} €</strong>
+    </div>
+    <div class="breakdown-row">
+      <strong>Resultado régimen general (46)</strong> = ${fmt(sumDev)} − ${fmt(sumDed)} = <strong>${fmt(sumDev - sumDed)} €</strong>
+    </div>
+
+    <h4>Riesgo global anual</h4>
+    <div class="breakdown-row">
+      <strong>Devengado libro</strong> = Σ cuotas emitidas = <strong>${fmt(devLib)} €</strong><br>
+      <strong>Devengado 303</strong> = Σ trim casilla 03+06+09 = <strong>${fmt(dev303Total)} €</strong><br>
+      dDev = |${fmt(devLib)} − ${fmt(dev303Total)}| = <strong>${fmt(Math.abs(devLib - dev303Total))}</strong>
+    </div>
+    <div class="breakdown-row">
+      <strong>Deducible libro</strong> = Σ cuotas recibidas (sin REAGYP) × %ded = <strong>${fmt(dedLib)} €</strong><br>
+      <strong>Deducible 303</strong> = Σ trim casillas 29+31+37 = <strong>${fmt(ded303Total)} €</strong><br>
+      dDed = |${fmt(dedLib)} − ${fmt(ded303Total)}| = <strong>${fmt(Math.abs(dedLib - ded303Total))}</strong>
+    </div>
+    <div class="breakdown-row">
+      <strong>REAGYP libro</strong> = ${fmt(reagypLib)} €  ·  <strong>REAGYP 303</strong> = ${fmt(reagyp303Total)} €<br>
+      dReagyp = <strong>${fmt(Math.abs(reagypLib - reagyp303Total))}</strong>
+    </div>
+    <div class="breakdown-row">
+      <strong>Diferencia total</strong> = dDev + dDed + dReagyp = <strong>${fmt(r.difTotal)} €</strong><br>
+      <strong>Desviación global</strong> = ${fmt(r.difTotal)} / ${fmt(dev303Total + ded303Total + reagyp303Total)} × 100 = <strong>${r.pct.toFixed(2)} %</strong><br>
+      → Riesgo: <strong>${r.nivel}</strong>
+    </div>
+  `;
 }
 
 function renderRiesgo() {
@@ -475,13 +652,14 @@ function exportarInformeExcel() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(concilCont), "1. Cont vs Libros");
 
   // Hoja 3: Conciliación Libros ↔ 303 (los 4 trimestres)
+  const colPeriodo = state.modoDeclaracion === "mensual" ? "Mes" : "Trimestre";
   const concil303 = [["CONCILIACIÓN LIBROS ↔ MODELO 303"], [],
-    ["Trimestre", "Concepto", "Libro (€)", "Modelo 303 (€)", "Diferencia (€)", "% dif", "Estado"]];
-  for (let t = 1; t <= 4; t++) {
-    const emit = totalesLibroEmitidasPorTipo(t);
-    const reci = totalesLibroRecibidasPorTipo(t);
-    const m = state.trimestres[t].m303;
-    const reagypT = totalReagypTrimestre(t);
+    [colPeriodo, "Concepto", "Libro (€)", "Modelo 303 (€)", "Diferencia (€)", "% dif", "Estado"]];
+  periodKeys(state.modoDeclaracion).forEach((pk) => {
+    const emit = totalesLibroEmitidasPorTipo(pk);
+    const reci = totalesLibroRecibidasPorTipo(pk);
+    const m = bucket(pk).m303;
+    const reagypT = totalReagypTrimestre(pk);
     const filas = [
       ["Devengado 21 % cuota", emit[21].cuota, m.c21],
       ["Devengado 10 % cuota", emit[10].cuota, m.c10],
@@ -491,9 +669,9 @@ function exportarInformeExcel() {
     ];
     filas.forEach(([c, lib, mod]) => {
       const ev = evaluarDif(lib, mod);
-      concil303.push([`${t}T`, c, lib, mod, ev.dif, ev.pct, ev.estado]);
+      concil303.push([periodLabel(pk), c, lib, mod, ev.dif, ev.pct, ev.estado]);
     });
-  }
+  });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(concil303), "2. Libros vs 303");
 
   // Hoja 4: Conciliación Σ 303 ↔ 390
@@ -512,13 +690,13 @@ function exportarInformeExcel() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(concil390), "3. 303 vs 390");
   }
 
-  // Hojas 5-8: Detalle facturas por trimestre
-  for (let t = 1; t <= 4; t++) {
-    const emit = state.trimestres[t].emitidas;
-    const reci = state.trimestres[t].recibidas;
+  // Hojas: Detalle facturas por período
+  periodKeys(state.modoDeclaracion).forEach((pk) => {
+    const emit = bucket(pk).emitidas;
+    const reci = bucket(pk).recibidas;
     if (emit.length || reci.length) {
       const detalle = [
-        [`DETALLE FACTURAS — ${t}T`], [],
+        [`DETALLE FACTURAS — ${periodLabel(pk)}`], [],
         ["EMITIDAS"],
         ["Fecha", "Nº factura", "Cliente", "Tipo IVA", "Base", "Cuota"],
         ...emit.map((f) => [f.fecha, f.numero, f.contraparte, f.tipoIva, num(f.base), num(f.cuota)]),
@@ -527,9 +705,9 @@ function exportarInformeExcel() {
         ...reci.map((f) => [f.fecha, f.numero, f.contraparte, f.tipoIva, num(f.base), num(f.cuota),
                             num(f.deducible || 100), esReagyp(f.tipoIva) ? "Sí" : ""]),
       ];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detalle), `${t}T detalle`);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detalle), `${pk} detalle`);
     }
-  }
+  });
 
   const fname = `Conciliacion_IVA_${ent.nif || "INFORME"}_${state.ejercicio}_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(wb, fname);
@@ -537,8 +715,7 @@ function exportarInformeExcel() {
 }
 
 function sumar303(k) {
-  return state.trimestres[1].m303[k] + state.trimestres[2].m303[k] +
-         state.trimestres[3].m303[k] + state.trimestres[4].m303[k];
+  return todosLosBuckets().reduce((a, b) => a + (b.m303[k] || 0), 0);
 }
 
 function evalEstado(a, b) {
@@ -572,12 +749,12 @@ function renderReconContab() {
 }
 
 function renderRecon303() {
-  const tri = triResultActivo;
-  const emit = totalesLibroEmitidasPorTipo(tri);
-  const reci = totalesLibroRecibidasPorTipo(tri);
-  const m = state.trimestres[tri].m303;
+  const pk = periodoResultActivo;
+  const emit = totalesLibroEmitidasPorTipo(pk);
+  const reci = totalesLibroRecibidasPorTipo(pk);
+  const m = bucket(pk).m303;
 
-  const reagypLib = totalReagypTrimestre(tri);
+  const reagypLib = totalReagypTrimestre(pk);
   const filas = [
     ["Devengado 21 % — base (01)", emit[21].base, m.b21],
     ["Devengado 21 % — cuota (03)", emit[21].cuota, m.c21],
@@ -593,17 +770,16 @@ function renderRecon303() {
   const t = document.getElementById("recon-303");
   t.innerHTML = `
     <thead><tr>
-      <th>Concepto</th><th class="num">Libro ${tri}T</th><th class="num">Modelo 303</th>
+      <th>Concepto</th><th class="num">Libro ${periodLabel(pk)}</th><th class="num">Modelo 303</th>
       <th class="num">Diferencia</th><th class="num">% dif.</th><th class="estado">Estado</th>
     </tr></thead>
     <tbody>${filas.map(([c, a, b]) => filaRecon(c, a, b)).join("")}</tbody>
   `;
 
-  // Hint sobre liquidación
   const dev = emit[21].cuota + emit[10].cuota + emit[4].cuota;
   const ded = reci[21].cuota + reci[10].cuota + reci[4].cuota;
   document.getElementById("hint-303").textContent =
-    `Resultado libro ${tri}T: devengado ${fmt(dev)} − deducible ${fmt(ded)} = ${fmt(dev - ded)} €  ·  Resultado 303 (casilla 71): ${fmt(
+    `Resultado libro ${periodLabel(pk)}: devengado ${fmt(dev)} − deducible ${fmt(ded)} = ${fmt(dev - ded)} €  ·  Resultado 303 (casilla 71): ${fmt(
       (m.c21 + m.c10 + m.c4 + m.c_intra + m.c_isp) - (m.c_ded_corr + m.c_ded_inv + m.c_ded_intra)
     )} €`;
 }
@@ -615,8 +791,7 @@ function renderRecon390() {
     return;
   }
 
-  const sum303 = (k) => state.trimestres[1].m303[k] + state.trimestres[2].m303[k] +
-    state.trimestres[3].m303[k] + state.trimestres[4].m303[k];
+  const sum303 = sumar303;
 
   const dedTotal303 = sum303("c_ded_corr") + sum303("c_ded_inv") + sum303("c_ded_intra");
   const dedBase303 = sum303("b_ded_corr") + sum303("b_ded_inv") + sum303("b_ded_intra");
@@ -675,6 +850,7 @@ function recogerTodo() {
 function renderTodo() {
   document.getElementById("ejercicio").value = state.ejercicio;
   renderEntidad();
+  renderPeriodSwitchers();
   renderLibros();
   render303();
   render390();
@@ -710,17 +886,17 @@ function ejemploDataset() {
   s.ejercicio = 2025;
 
   // 1T — emitidas
-  s.trimestres[1].emitidas = [
+  s.periodos.trimestral["1T"].emitidas = [
     { fecha: "2025-01-15", numero: "F-001", contraparte: "Cliente A", tipoIva: "21", base: 100000, cuota: 21000 },
     { fecha: "2025-02-10", numero: "F-002", contraparte: "Cliente B", tipoIva: "10", base: 30000, cuota: 3000 },
     { fecha: "2025-03-20", numero: "F-003", contraparte: "Cliente C", tipoIva: "4", base: 5000, cuota: 200 },
   ];
-  s.trimestres[1].recibidas = [
+  s.periodos.trimestral["1T"].recibidas = [
     { fecha: "2025-01-10", numero: "P-100", contraparte: "Proveedor X", tipoIva: "21", base: 50000, cuota: 10500, deducible: 100 },
     { fecha: "2025-02-05", numero: "P-101", contraparte: "Proveedor Y", tipoIva: "21", base: 10000, cuota: 2100, deducible: 100 },
     { fecha: "2025-03-12", numero: "P-102", contraparte: "Proveedor Z", tipoIva: "10", base: 8000, cuota: 800, deducible: 100 },
   ];
-  s.trimestres[1].m303 = {
+  s.periodos.trimestral["1T"].m303 = {
     b21: 100000, c21: 21000,
     b10: 30000, c10: 3000,
     b4: 5000, c4: 200,
@@ -731,14 +907,14 @@ function ejemploDataset() {
   };
 
   // 2T — caso con diferencia (libro 22.000 vs 303 21.580)
-  s.trimestres[2].emitidas = [
+  s.periodos.trimestral["2T"].emitidas = [
     { fecha: "2025-04-12", numero: "F-010", contraparte: "Cliente A", tipoIva: "21", base: 104761.90, cuota: 22000 },
     { fecha: "2025-05-22", numero: "F-011", contraparte: "Cliente D", tipoIva: "10", base: 11000, cuota: 1100 },
   ];
-  s.trimestres[2].recibidas = [
+  s.periodos.trimestral["2T"].recibidas = [
     { fecha: "2025-04-05", numero: "P-200", contraparte: "Proveedor X", tipoIva: "21", base: 40000, cuota: 8400, deducible: 100 },
   ];
-  s.trimestres[2].m303 = {
+  s.periodos.trimestral["2T"].m303 = {
     b21: 102761.90, c21: 21580,
     b10: 11000, c10: 1100,
     b4: 0, c4: 0,
@@ -750,19 +926,19 @@ function ejemploDataset() {
 
   // 3T y 4T (datos plausibles para que cuadre el anual del enunciado: total 21% = 425.000 / 89.250)
   // 1T: 100.000/21.000 ; 2T (libro): 104.761,90/22.000 ; necesitamos sumar 220.238,10 / 46.250 entre 3T+4T
-  s.trimestres[3].emitidas = [
+  s.periodos.trimestral["3T"].emitidas = [
     { fecha: "2025-08-15", numero: "F-020", contraparte: "Cliente A", tipoIva: "21", base: 95000, cuota: 19950 },
   ];
-  s.trimestres[3].m303 = {
+  s.periodos.trimestral["3T"].m303 = {
     b21: 95000, c21: 19950,
     b10: 0, c10: 0, b4: 0, c4: 0,
     b_intra: 0, c_intra: 0, b_isp: 0, c_isp: 0,
     b_ded_corr: 0, c_ded_corr: 0, b_ded_inv: 0, c_ded_inv: 0, b_ded_intra: 0, c_ded_intra: 0,
   };
-  s.trimestres[4].emitidas = [
+  s.periodos.trimestral["4T"].emitidas = [
     { fecha: "2025-11-30", numero: "F-030", contraparte: "Cliente A", tipoIva: "21", base: 120000, cuota: 25200 },
   ];
-  s.trimestres[4].m303 = {
+  s.periodos.trimestral["4T"].m303 = {
     b21: 120000, c21: 25200,
     b10: 0, c10: 0, b4: 0, c4: 0,
     b_intra: 0, c_intra: 0, b_isp: 0, c_isp: 0,
@@ -908,7 +1084,7 @@ function importarLibroDesdeFilas(filas, tipo, tri) {
 function abrirModalMapeo({ headers, mapping, datos, tipo, tri }) {
   const body = document.getElementById("modal-body");
   document.getElementById("modal-title").textContent =
-    `Importar ${tipo === "emitidas" ? "facturas emitidas" : "facturas recibidas"} — ${tri}T`;
+    `Importar ${tipo === "emitidas" ? "facturas emitidas" : "facturas recibidas"} — ${periodLabel(tri)}`;
 
   const campos = ["fecha", "numero", "contraparte", "tipoIva", "base", "cuota"];
   if (tipo === "recibidas") campos.push("deducible");
@@ -961,7 +1137,7 @@ function abrirModalMapeo({ headers, mapping, datos, tipo, tri }) {
     });
     if (map.base == null && map.cuota == null) { flash("Debes asignar al menos base o cuota"); return false; }
 
-    const dest = state.trimestres[tri][tipo];
+    const dest = bucket(tri)[tipo];
     let añadidas = 0;
     datos.forEach((r) => {
       const get = (k) => map[k] != null ? r[map[k]] : "";
@@ -985,7 +1161,7 @@ function abrirModalMapeo({ headers, mapping, datos, tipo, tri }) {
     });
     save();
     renderLibros();
-    flash(`${añadidas} líneas importadas en ${tri}T.`);
+    flash(`${añadidas} líneas importadas en ${periodLabel(tri)}.`);
     return true;
   });
 }
@@ -1016,7 +1192,7 @@ function detectarCasillas303(texto) {
   // Estrategia: probar varios patrones por casilla y quedarnos con el valor
   // más plausible. Se ignoran los matches con valor 0 a no ser que sean los únicos.
   const out = {};
-  const limpio = texto.replace(/ /g, " ");
+  const limpio = texto.replace(/ /g, " ");
 
   const patrones = (cas) => [
     // "01 100.000,00" / "[01] 100.000,00" / "01: 100.000,00"
@@ -1073,23 +1249,91 @@ function detectarPeriodo303(texto) {
   return { trimestre, ejercicio };
 }
 
-async function importarPdf303(file, tri) {
-  try {
-    const txt = await extraerTextoPdf(file);
-    const detect = detectarCasillas303(txt);
-    const periodo = detectarPeriodo303(txt);
-    if (Object.keys(detect).length === 0) {
-      flash("No se han podido detectar casillas en el PDF.");
-      return;
+async function importarPdf303Multiple(files, periodoDefault) {
+  flash(`Procesando ${files.length} PDF${files.length === 1 ? "" : "s"}...`);
+  const items = [];
+  for (const file of files) {
+    try {
+      const txt = await extraerTextoPdf(file);
+      const detect = detectarCasillas303(txt);
+      const periodo = detectarPeriodo303(txt);
+      let pkFinal = periodoDefault;
+      if (state.modoDeclaracion === "trimestral" && periodo.trimestre) {
+        pkFinal = TRIMESTRES[periodo.trimestre - 1];
+      } else if (state.modoDeclaracion === "mensual" && periodo.mes) {
+        pkFinal = String(periodo.mes).padStart(2, "0");
+      }
+      items.push({ fileName: file.name, detect, periodo, pk: pkFinal,
+                   ok: Object.keys(detect).length > 0 });
+    } catch (e) {
+      items.push({ fileName: file.name, detect: {}, periodo: {}, pk: periodoDefault,
+                   ok: false, error: e.message });
     }
-    const triFinal = periodo.trimestre || tri;
-    abrirModalPreview303(detect, triFinal, txt, periodo);
-  } catch (e) {
-    flash("Error leyendo PDF: " + e.message);
   }
+  abrirModalPreviewMultiple303(items);
 }
 
-function abrirModalPreview303(detect, tri, textoOrig, periodo) {
+function abrirModalPreviewMultiple303(items) {
+  document.getElementById("modal-title").textContent =
+    `Importar ${items.length} modelo${items.length === 1 ? "" : "s"} 303`;
+  const body = document.getElementById("modal-body");
+  const opciones = periodKeys(state.modoDeclaracion).map((k) =>
+    `<option value="${k}">${periodLabel(k)}</option>`
+  ).join("");
+
+  const filas = items.map((it, i) => {
+    const opcionesSel = periodKeys(state.modoDeclaracion).map((k) =>
+      `<option value="${k}" ${k === it.pk ? "selected" : ""}>${periodLabel(k)}</option>`
+    ).join("");
+    return `
+      <tr>
+        <td>${escapeHtml(it.fileName)}</td>
+        <td>${it.ok ? `<span style="color:var(--ok);">✓ ${Object.keys(it.detect).length} casillas</span>`
+                    : `<span style="color:var(--err);">✗ ${escapeHtml(it.error || "no detectado")}</span>`}</td>
+        <td>${it.periodo.trimestre ? it.periodo.trimestre + "T" : "—"} ${it.periodo.ejercicio || ""}</td>
+        <td>
+          <select data-row="${i}" ${it.ok ? "" : "disabled"}>${opcionesSel}</select>
+        </td>
+        <td class="num">${it.ok ? fmt(it.detect.c21 || 0) : "—"}</td>
+        <td class="num">${it.ok ? fmt(it.detect.c_ded_corr || 0) : "—"}</td>
+      </tr>
+    `;
+  }).join("");
+
+  body.innerHTML = `
+    <p class="preview-meta">
+      Cada fila es un PDF. La aplicación ha detectado el período de cada uno; ajusta si hace falta antes de aplicar.
+    </p>
+    <table class="preview-table">
+      <thead>
+        <tr>
+          <th>Archivo</th><th>Detección</th><th>Período PDF</th>
+          <th>Asignar a</th><th class="num">Cuota 21 %</th><th class="num">Cuota deduc.</th>
+        </tr>
+      </thead>
+      <tbody>${filas}</tbody>
+    </table>
+  `;
+
+  abrirModal(() => {
+    let aplicados = 0;
+    items.forEach((it, i) => {
+      if (!it.ok) return;
+      const sel = body.querySelector(`select[data-row="${i}"]`);
+      const pk = sel.value;
+      const m = bucket(pk).m303;
+      Object.entries(it.detect).forEach(([k, v]) => { m[k] = v; });
+      aplicados++;
+    });
+    save();
+    render303();
+    renderResultados();
+    flash(`${aplicados} modelo${aplicados === 1 ? "" : "s"} 303 aplicados.`);
+    return true;
+  });
+}
+
+function abrirModalPreview303(detect, pkActiva, textoOrig, periodo) {
   document.getElementById("modal-title").textContent = `Importar Modelo 303`;
   const body = document.getElementById("modal-body");
   const labels = {
@@ -1105,17 +1349,15 @@ function abrirModalPreview303(detect, tri, textoOrig, periodo) {
   };
   const detectInfo = periodo && (periodo.trimestre || periodo.ejercicio)
     ? `Detectado: ${periodo.trimestre ? periodo.trimestre + "T " : ""}${periodo.ejercicio || ""}`
-    : "Período no detectado, usando trimestre activo.";
+    : "Período no detectado.";
+  const opciones = periodKeys(state.modoDeclaracion).map((k) => `
+    <option value="${k}" ${k === pkActiva ? "selected" : ""}>${periodLabel(k)}</option>
+  `).join("");
   body.innerHTML = `
-    <p class="preview-meta">${detectInfo} Asigna el trimestre destino y revisa los importes detectados.</p>
+    <p class="preview-meta">${detectInfo} Asigna el período destino y revisa los importes detectados.</p>
     <div class="mapping-row">
-      <label>Trimestre destino</label>
-      <select id="pdf-tri-target">
-        <option value="1" ${tri === 1 ? "selected" : ""}>1T</option>
-        <option value="2" ${tri === 2 ? "selected" : ""}>2T</option>
-        <option value="3" ${tri === 3 ? "selected" : ""}>3T</option>
-        <option value="4" ${tri === 4 ? "selected" : ""}>4T</option>
-      </select>
+      <label>Período destino</label>
+      <select id="pdf-tri-target">${opciones}</select>
     </div>
     <div class="grid casillas">
       ${Object.keys(labels).map((k) => `
@@ -1127,14 +1369,14 @@ function abrirModalPreview303(detect, tri, textoOrig, periodo) {
     </div>
   `;
   abrirModal(() => {
-    const triDest = parseInt(document.getElementById("pdf-tri-target").value, 10);
-    const m = state.trimestres[triDest].m303;
+    const pkDest = document.getElementById("pdf-tri-target").value;
+    const m = bucket(pkDest).m303;
     body.querySelectorAll("[data-pdf]").forEach((el) => {
       m[el.dataset.pdf] = num(el.value);
     });
     save();
-    if (triDest === tri303Activo) render303();
-    flash(`Modelo 303 ${triDest}T actualizado.`);
+    if (pkDest === periodo303Activo) render303();
+    flash(`Modelo 303 ${periodLabel(pkDest)} actualizado.`);
     return true;
   });
 }
@@ -1245,19 +1487,31 @@ function bindImport(id, handler) {
     e.target.value = "";
   });
 }
+function bindImportMultiple(id, handler) {
+  document.getElementById(id).addEventListener("change", async (e) => {
+    const fs = Array.from(e.target.files || []);
+    if (!fs.length) return;
+    await handler(fs);
+    e.target.value = "";
+  });
+}
 bindImport("imp-emitidas-xlsx", async (f) => {
   const hojas = await leerArchivoExcel(f);
   const filas = await elegirHoja(hojas);
-  importarLibroDesdeFilas(filas, "emitidas", triLibroActivo);
+  importarLibroDesdeFilas(filas, "emitidas", periodoLibroActivo);
 });
 bindImport("imp-recibidas-xlsx", async (f) => {
   const hojas = await leerArchivoExcel(f);
   const filas = await elegirHoja(hojas);
-  importarLibroDesdeFilas(filas, "recibidas", triLibroActivo);
+  importarLibroDesdeFilas(filas, "recibidas", periodoLibroActivo);
 });
-bindImport("imp-emitidas-pdf", (f) => importarLibroDesdePdf(f, "emitidas", triLibroActivo));
-bindImport("imp-recibidas-pdf", (f) => importarLibroDesdePdf(f, "recibidas", triLibroActivo));
-bindImport("imp-303-pdf", (f) => importarPdf303(f, tri303Activo));
+bindImportMultiple("imp-emitidas-pdf", async (fs) => {
+  for (const f of fs) await importarLibroDesdePdf(f, "emitidas", periodoLibroActivo);
+});
+bindImportMultiple("imp-recibidas-pdf", async (fs) => {
+  for (const f of fs) await importarLibroDesdePdf(f, "recibidas", periodoLibroActivo);
+});
+bindImportMultiple("imp-303-pdf", (fs) => importarPdf303Multiple(fs, periodo303Activo));
 bindImport("imp-390-pdf", (f) => importarPdf390(f));
 
 /* ---------- Plantilla descargable ---------- */
