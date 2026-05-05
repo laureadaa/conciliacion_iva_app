@@ -356,6 +356,7 @@ label.btn { display: inline-block; }
   margin-bottom: 10px;
 }
 .dropzone:hover { background: var(--beige); border-color: var(--primary-dark); }
+.dropzone.drag-over { background: var(--beige); border-color: var(--primary-dark); transform: scale(1.01); }
 .dropzone strong { color: var(--primary); font-size: 13px; }
 .dropzone span { color: var(--muted); font-size: 11px; }
 .dropzone.secondary {
