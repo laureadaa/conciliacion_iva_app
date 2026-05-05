@@ -1345,13 +1345,118 @@ function importarLibroDesdeFilas(filas, tipo, tri) {
   const datos = filas.slice(headerIdx + 1)
     .filter((r) => r.some((c) => c !== "" && c != null));
 
-  // Si la auto-detección cubre lo mínimo (fecha + base o cuota), importamos
-  // directamente repartiendo cada factura al período (trimestre/mes) que
-  // corresponda según su fecha. El usuario no necesita pasar por el modal
-  // de mapeo cuando la cabecera es estándar.
+  // Si la auto-detección cubre lo mínimo (fecha + base o cuota), abrimos un
+  // modal compacto de confirmación que muestra el mapeo detectado y un
+  // preview con los importes ya parseados. El usuario aprueba con un clic
+  // ("Importar") o ajusta manualmente. Si la detección es incompleta, vamos
+  // directos al mapeo manual completo.
   const tieneFecha = mapping.fecha != null;
   const tieneImporte = mapping.base != null || mapping.cuota != null;
   if (tieneFecha && tieneImporte && datos.length) {
+    abrirModalConfirmacion({ headers, mapping, datos, tipo, tri, headerIdx });
+  } else {
+    abrirModalMapeo({ headers, mapping, datos, tipo, tri });
+  }
+}
+
+/* Modal compacto: enseña la cabecera detectada, qué columna se asigna a qué
+   campo y un preview con los importes ya parseados (para que se vea si los
+   "1.234,56" se leen como 1234,56 € o como otra cosa). El usuario confirma
+   con un clic; opcionalmente abre el modal completo para ajustar. */
+function abrirModalConfirmacion({ headers, mapping, datos, tipo, tri, headerIdx }) {
+  document.getElementById("modal-title").textContent =
+    `Importar ${tipo === "emitidas" ? "facturas emitidas" : "facturas recibidas"}`;
+  const body = document.getElementById("modal-body");
+
+  const campos = ["fecha", "numero", "contraparte", "tipoIva", "base", "cuota"];
+  if (tipo === "recibidas") campos.push("deducible");
+
+  const labels = {
+    fecha: "Fecha", numero: "Nº factura", contraparte: tipo === "emitidas" ? "Cliente" : "Proveedor",
+    tipoIva: "Tipo IVA", base: "Base", cuota: "Cuota", deducible: "% Deducible",
+  };
+
+  const mapeoHtml = campos.map((c) => {
+    const idx = mapping[c];
+    if (idx != null) {
+      return `<li style="color:var(--ok);">✓ ${labels[c]} → columna “${escapeHtml(headers[idx] || "?")}”</li>`;
+    } else {
+      const txt = c === "deducible" ? "no detectada (100 % por defecto)"
+                : c === "tipoIva"   ? "no detectada (21 % por defecto)"
+                : c === "numero"    ? "no detectada"
+                : c === "contraparte" ? "no detectada"
+                : "no detectada";
+      return `<li style="color:var(--muted);">✗ ${labels[c]} ${txt}</li>`;
+    }
+  }).join("");
+
+  // Preview de las 5 primeras filas con importes ya parseados
+  const muestra = datos.slice(0, 5);
+  const filas = muestra.map((r) => {
+    const get = (k) => mapping[k] != null ? r[mapping[k]] : "";
+    const tipoIvaTok = normalizarTipoIva(get("tipoIva") || "21");
+    const base = num(get("base"));
+    let cuota = num(get("cuota"));
+    if (cuota === 0 && base !== 0) cuota = round2(base * parseFloat(tipoIvaTok) / 100);
+    const fecha = parseFecha(get("fecha"));
+    const dedRaw = mapping.deducible != null ? get("deducible") : "";
+    const ded = (dedRaw === "" || dedRaw == null) ? 100 : num(dedRaw);
+    return { fecha, numero: get("numero"), contraparte: get("contraparte"),
+             tipoIva: tipoIvaTok, base, cuota, deducible: ded };
+  });
+
+  const cabeceras = `<th>Fecha</th><th>Nº</th><th>${labels.contraparte}</th>
+    <th class="num">Tipo</th><th class="num">Base</th><th class="num">Cuota</th>
+    ${tipo === "recibidas" ? '<th class="num">% Ded.</th>' : ""}`;
+  const cuerpo = filas.map((f) => `<tr>
+    <td>${escapeHtml(f.fecha || "")}</td>
+    <td>${escapeHtml(String(f.numero ?? ""))}</td>
+    <td>${escapeHtml(String(f.contraparte ?? ""))}</td>
+    <td class="num">${escapeHtml(f.tipoIva)} %</td>
+    <td class="num">${fmt(f.base)}</td>
+    <td class="num">${fmt(f.cuota)}</td>
+    ${tipo === "recibidas" ? `<td class="num">${f.deducible}</td>` : ""}
+  </tr>`).join("");
+
+  const totalBase = datos.reduce((a, r) => a + num(mapping.base != null ? r[mapping.base] : ""), 0);
+  const totalCuota = datos.reduce((a, r) => {
+    const b = num(mapping.base != null ? r[mapping.base] : "");
+    const c = num(mapping.cuota != null ? r[mapping.cuota] : "");
+    const t = normalizarTipoIva(String(mapping.tipoIva != null ? r[mapping.tipoIva] : "21"));
+    return a + (c !== 0 ? c : round2(b * parseFloat(t) / 100));
+  }, 0);
+
+  body.innerHTML = `
+    <p class="preview-meta">
+      Cabecera detectada en la fila <strong>${headerIdx + 1}</strong>.
+      <strong>${datos.length}</strong> facturas. Total base: <strong>${fmt(totalBase)} €</strong>,
+      total cuota: <strong>${fmt(totalCuota)} €</strong>.
+      Cada factura se asignará al período (trimestre/mes) que corresponda según su fecha.
+    </p>
+    <ul style="margin:0 0 12px 16px;padding:0;font-size:13px;line-height:1.7;">${mapeoHtml}</ul>
+    <h4 style="margin:6px 0;font-size:13px;">Vista previa (primeras 5):</h4>
+    <div class="table-scroll">
+      <table class="preview-table">
+        <thead><tr>${cabeceras}</tr></thead>
+        <tbody>${cuerpo}</tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:10px;">
+      ¿Las cantidades no encajan o falta alguna columna?
+      <a href="#" id="lnk-ajustar-mapeo">Ajustar el mapeo manualmente</a>.
+    </p>
+  `;
+  document.getElementById("modal-ok").textContent = `Importar ${datos.length} facturas`;
+
+  const lnk = document.getElementById("lnk-ajustar-mapeo");
+  lnk.addEventListener("click", (e) => {
+    e.preventDefault();
+    cerrarModal();
+    abrirModalMapeo({ headers, mapping, datos, tipo, tri });
+  });
+
+  abrirModal(() => {
+    document.getElementById("modal-ok").textContent = "Aplicar"; // restablecer
     const res = aplicarFilasAutomaticas(datos, mapping, tipo, tri);
     autoRellenar303SiVacio(res.periodosTocados, tipo);
     save();
@@ -1362,10 +1467,8 @@ function importarLibroDesdeFilas(filas, tipo, tri) {
       .map(([p, n]) => `${n} en ${periodLabel(p)}`).join(", ");
     const skip = res.saltadas ? ` · ${res.saltadas} sin importes` : "";
     flash(`${res.total} facturas importadas (${partes || "sin reparto"})${skip}.`);
-    return;
-  }
-  // Fallback: detección incompleta → pedir mapeo manual.
-  abrirModalMapeo({ headers, mapping, datos, tipo, tri });
+    return true;
+  });
 }
 
 /* Reparte las facturas en buckets por período usando la fecha de cada fila.
@@ -1991,6 +2094,9 @@ function abrirModal(onOk) {
 function cerrarModal() {
   modalCallback = null;
   document.getElementById("modal").hidden = true;
+  // Restaurar el texto por defecto del botón principal
+  const ok = document.getElementById("modal-ok");
+  if (ok) ok.textContent = "Aplicar";
 }
 document.getElementById("modal-close").addEventListener("click", cerrarModal);
 document.getElementById("modal-cancel").addEventListener("click", cerrarModal);
