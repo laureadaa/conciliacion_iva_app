@@ -215,6 +215,12 @@ main { padding: 20px 24px 60px; max-width: 1600px; margin: 0 auto; }
   font-weight: 600;
   border-top: 2px solid var(--border);
 }
+.data-table tr.row-warn td {
+  background: var(--warn-bg);
+}
+.data-table tr.row-warn td:first-child {
+  border-left: 3px solid var(--warn);
+}
 
 .totales-tipo {
   margin-top: 10px;
@@ -356,6 +362,7 @@ label.btn { display: inline-block; }
   margin-bottom: 10px;
 }
 .dropzone:hover { background: var(--beige); border-color: var(--primary-dark); }
+.dropzone.drag-over { background: var(--beige); border-color: var(--primary-dark); transform: scale(1.01); }
 .dropzone strong { color: var(--primary); font-size: 13px; }
 .dropzone span { color: var(--muted); font-size: 11px; }
 .dropzone.secondary {

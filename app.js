@@ -40,6 +40,7 @@ const empty303 = () => ({
   b_ded_inv: 0, c_ded_inv: 0,
   b_ded_intra: 0, c_ded_intra: 0,
   c_reagyp: 0,
+  c78: 0, // cuotas a compensar de períodos anteriores
 });
 
 function emptyBucket() {
@@ -93,21 +94,52 @@ function migrar(s) {
   if (!s.periodos) s.periodos = { trimestral: emptyPeriodos("trimestral"), mensual: emptyPeriodos("mensual") };
   if (!s.periodos.trimestral) s.periodos.trimestral = emptyPeriodos("trimestral");
   if (!s.periodos.mensual) s.periodos.mensual = emptyPeriodos("mensual");
-  // Asegurar todas las keys en cada modo
+  // Asegurar todas las keys en cada modo y rellenar campos nuevos del m303
   ["trimestral", "mensual"].forEach((modo) => {
     periodKeys(modo).forEach((k) => {
       if (!s.periodos[modo][k]) s.periodos[modo][k] = emptyBucket();
+      const def = empty303();
+      s.periodos[modo][k].m303 = { ...def, ...(s.periodos[modo][k].m303 || {}) };
     });
   });
   if (!s.modoDeclaracion) s.modoDeclaracion = "trimestral";
   if (!s.entidad) s.entidad = { nombre: "", nif: "", sector: "", periodoInicio: "", periodoFin: "" };
+  if (!s.contab) s.contab = { c477: 0, c472: 0, c4750: 0, c4700: 0 };
+  if (!s.m390) s.m390 = { b21: 0, c21: 0, b10: 0, c10: 0, b4: 0, c4: 0, b_ded: 0, c_ded: 0, c_reagyp: 0 };
   return s;
 }
 
 let state = migrar(load()) || defaultState();
-let periodoLibroActivo = periodKeys(state.modoDeclaracion)[0];
-let periodo303Activo = periodKeys(state.modoDeclaracion)[0];
-let periodoResultActivo = periodKeys(state.modoDeclaracion)[0];
+
+/* ---------- Auto-guardado (debounce) ---------- */
+let _saveTimer = null;
+function autoSave() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => save(), 250);
+}
+
+/* ---------- Persistencia del período activo ---------- */
+const PER_PREF_KEY = "iva-conciliacion-periodo-activo";
+const _perPref = (() => {
+  try { return JSON.parse(localStorage.getItem(PER_PREF_KEY)) || {}; }
+  catch { return {}; }
+})();
+function _perInicial(field) {
+  const keys = periodKeys(state.modoDeclaracion);
+  const guardado = _perPref[state.modoDeclaracion] && _perPref[state.modoDeclaracion][field];
+  return guardado && keys.includes(guardado) ? guardado : keys[0];
+}
+let periodoLibroActivo = _perInicial("libro");
+let periodo303Activo = _perInicial("m303");
+let periodoResultActivo = _perInicial("result");
+function persistPeriodo() {
+  try {
+    const m = state.modoDeclaracion;
+    const data = JSON.parse(localStorage.getItem(PER_PREF_KEY) || "{}");
+    data[m] = { libro: periodoLibroActivo, m303: periodo303Activo, result: periodoResultActivo };
+    localStorage.setItem(PER_PREF_KEY, JSON.stringify(data));
+  } catch {}
+}
 
 /* ---------- Utilidades ---------- */
 const fmt = (n) =>
@@ -155,9 +187,9 @@ function renderPeriodSwitchers() {
       r.addEventListener("change", (e) => onChange(e.target.value));
     });
   }
-  renderOne("tri-libro", () => periodoLibroActivo, (v) => { periodoLibroActivo = v; renderLibros(); });
-  renderOne("tri-303", () => periodo303Activo, (v) => { periodo303Activo = v; render303(); });
-  renderOne("tri-result", () => periodoResultActivo, (v) => { periodoResultActivo = v; renderResultados(); });
+  renderOne("tri-libro", () => periodoLibroActivo, (v) => { periodoLibroActivo = v; renderLibros(); persistPeriodo(); });
+  renderOne("tri-303", () => periodo303Activo, (v) => { periodo303Activo = v; render303(); persistPeriodo(); });
+  renderOne("tri-result", () => periodoResultActivo, (v) => { periodoResultActivo = v; renderResultados(); persistPeriodo(); });
 }
 
 /* ---------- Botones ---------- */
@@ -189,11 +221,13 @@ document.querySelectorAll("[data-add]").forEach((b) => {
       : { fecha: "", numero: "", contraparte: "", tipoIva: "21", base: 0, cuota: 0, deducible: 100 };
     t[tipo].push(fila);
     renderLibros();
+    autoSave();
   });
 });
 
 document.getElementById("ejercicio").addEventListener("input", (e) => {
   state.ejercicio = parseInt(e.target.value, 10) || new Date().getFullYear();
+  autoSave();
 });
 
 document.getElementById("btn-export").addEventListener("click", exportarInformeExcel);
@@ -203,6 +237,59 @@ document.getElementById("presenta-390").addEventListener("change", (e) => {
   state.presenta390 = e.target.checked;
   document.getElementById("m390-form").style.opacity = state.presenta390 ? "1" : ".4";
   document.getElementById("m390-form").style.pointerEvents = state.presenta390 ? "auto" : "none";
+  autoSave();
+});
+
+/* ---------- Volcar libros del período activo a las casillas del 303 ---------- */
+document.getElementById("btn-303-desde-libro").addEventListener("click", () => {
+  const pk = periodo303Activo;
+  if (!confirm(`Se sustituirán las casillas del Modelo 303 de ${periodLabel(pk)} por los totales del libro de ese período. ¿Continuar?`)) return;
+  const emit = totalesLibroEmitidasPorTipo(pk);
+  const reci = totalesLibroRecibidasPorTipo(pk);
+  const reagyp = totalReagypTrimestre(pk);
+  const m = bucket(pk).m303;
+  m.b21 = round2(emit[21].base);  m.c21 = round2(emit[21].cuota);
+  m.b10 = round2(emit[10].base);  m.c10 = round2(emit[10].cuota);
+  m.b4  = round2(emit[4].base);   m.c4  = round2(emit[4].cuota);
+  // Deducible se vuelca a "corriente" (28/29) por defecto; el usuario puede
+  // repartir manualmente entre 28/29, 30/31 (inversión) y 36/37 (intracom).
+  m.b_ded_corr = round2(reci[21].base + reci[10].base + reci[4].base);
+  m.c_ded_corr = round2(reci[21].cuota + reci[10].cuota + reci[4].cuota);
+  m.c_reagyp = round2(reagyp);
+  render303();
+  save();
+  flash(`Casillas del 303 ${periodLabel(pk)} rellenadas desde libros.`);
+});
+
+/* ---------- Export / Import JSON ---------- */
+document.getElementById("btn-export-json").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `conciliacion_iva_${state.entidad.nif || "datos"}_${state.ejercicio}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  flash("Copia de seguridad descargada.");
+});
+document.getElementById("imp-json").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  try {
+    const txt = await f.text();
+    const parsed = JSON.parse(txt);
+    if (!parsed || (!parsed.periodos && !parsed.trimestres)) throw new Error("Formato no reconocido");
+    if (!confirm("Esto sobrescribirá los datos actuales. ¿Continuar?")) return;
+    state = migrar(parsed) || defaultState();
+    save();
+    renderTodo();
+    flash("Datos importados.");
+  } catch (err) {
+    flash("Error importando JSON: " + err.message);
+  }
 });
 
 /* ---------- Render: Libros ---------- */
@@ -218,6 +305,7 @@ function renderTablaFacturas(tipo, filas) {
   tbody.innerHTML = "";
   filas.forEach((f, i) => {
     const tr = document.createElement("tr");
+    tr.dataset.row = i;
     tr.innerHTML = `
       <td><input type="date" value="${f.fecha}" data-i="${i}" data-k="fecha"></td>
       <td><input type="text" value="${escapeHtml(f.numero)}" data-i="${i}" data-k="numero"></td>
@@ -234,6 +322,7 @@ function renderTablaFacturas(tipo, filas) {
         : ""}
       <td><button class="row-del" data-del="${i}" data-tipo="${tipo}" title="Eliminar">×</button></td>
     `;
+    aplicarValidacionFila(tr, f);
     tbody.appendChild(tr);
   });
 
@@ -244,15 +333,22 @@ function renderTablaFacturas(tipo, filas) {
       let v = e.target.value;
       if (["base", "cuota", "deducible"].includes(k)) v = num(v);
       filas[i][k] = v;
-      // Auto-cuota si el usuario edita base y la cuota está vacía o el tipo es coherente
+      // Auto-cuota: si la cuota sigue a 0 y hay base + tipo > 0, calculamos
+      // cuota = base × tipo. No la pisamos si el usuario ya tecleó otro valor
+      // (rectificativas, redondeos manuales).
       if (k === "base" || k === "tipoIva") {
         const tasa = parseFloat(filas[i].tipoIva) / 100;
-        if (Math.abs(filas[i].cuota - filas[i].base * tasa) > 0.01 && filas[i].cuota === 0) {
+        if (filas[i].cuota === 0 && filas[i].base !== 0 && tasa > 0) {
           filas[i].cuota = round2(filas[i].base * tasa);
+          const cuotaInput = tbody.querySelector(`input[data-i="${i}"][data-k="cuota"]`);
+          if (cuotaInput) cuotaInput.value = filas[i].cuota;
         }
       }
       renderTotalesTipo();
       actualizarFooterTabla(tipo);
+      const tr = e.target.closest("tr");
+      if (tr) aplicarValidacionFila(tr, filas[i]);
+      autoSave();
     });
   });
 
@@ -261,10 +357,28 @@ function renderTablaFacturas(tipo, filas) {
       const i = parseInt(e.currentTarget.dataset.del, 10);
       filas.splice(i, 1);
       renderLibros();
+      autoSave();
     });
   });
 
   actualizarFooterTabla(tipo);
+}
+
+/* Marca filas cuya cuota difiera de base × tipo en más de 1 cent. Útil para
+   detectar tipos mal codificados o errores de tecleo antes de pasar al 303. */
+function aplicarValidacionFila(tr, fila) {
+  const tasa = parseFloat(fila.tipoIva) / 100;
+  const base = num(fila.base);
+  const cuota = num(fila.cuota);
+  const esperada = round2(base * tasa);
+  const tieneDatos = base !== 0 || cuota !== 0;
+  const noCuadra = tieneDatos && tasa > 0 && Math.abs(cuota - esperada) > 0.01;
+  tr.classList.toggle("row-warn", noCuadra);
+  if (noCuadra) {
+    tr.title = `Cuota esperada según tipo ${fila.tipoIva} %: ${fmt(esperada)} (diferencia ${fmt(cuota - esperada)})`;
+  } else {
+    tr.removeAttribute("title");
+  }
 }
 
 function actualizarFooterTabla(tipo) {
@@ -306,6 +420,7 @@ function render303() {
     el.oninput = () => {
       m[el.dataset["303"]] = num(el.value);
       actualizarResumen303();
+      autoSave();
     };
   });
   actualizarResumen303();
@@ -313,13 +428,69 @@ function render303() {
 
 function actualizarResumen303() {
   const m = bucket(periodo303Activo).m303;
-  const dev = m.c21 + m.c10 + m.c4 + m.c_intra + m.c_isp;
-  const ded = m.c_ded_corr + m.c_ded_inv + m.c_ded_intra;
-  const res = dev - ded;
+  // Casilla 27 = total cuota devengada (régimen general + intracom + ISP)
+  const dev = num(m.c21) + num(m.c10) + num(m.c4) + num(m.c_intra) + num(m.c_isp);
+  // Casilla 45 = total a deducir; la compensación REAGYP (41) se suma aquí.
+  const ded = num(m.c_ded_corr) + num(m.c_ded_inv) + num(m.c_ded_intra) + num(m.c_reagyp);
+  const res = dev - ded; // casilla 46
+  // Casilla 71 (a ingresar/devolver) = 46 − 78 (compensación períodos anteriores)
+  const c71 = res - num(m.c78);
   document.getElementById("r303-dev").textContent = fmt(dev);
   document.getElementById("r303-ded").textContent = fmt(ded);
   document.getElementById("r303-res").textContent = fmt(res);
-  document.getElementById("r303-71").textContent = fmt(res);
+  const el78 = document.getElementById("r303-78");
+  if (el78) el78.textContent = fmt(num(m.c78));
+  document.getElementById("r303-71").textContent = fmt(c71);
+  renderResumenAnual303();
+}
+
+function renderResumenAnual303() {
+  const t = document.getElementById("resumen-anual-303");
+  if (!t) return;
+  const keys = periodKeys(state.modoDeclaracion);
+  const sum = (k) => todosLosBuckets().reduce((a, b) => a + num(b.m303[k]), 0);
+
+  const rows = [
+    { c: "Cuota devengada 21 % (03)", k: "c21" },
+    { c: "Cuota devengada 10 % (06)", k: "c10" },
+    { c: "Cuota devengada 4 % (09)", k: "c4" },
+    { c: "Cuota intracom. (11)", k: "c_intra" },
+    { c: "Cuota ISP (13)", k: "c_isp" },
+    { c: "Σ Total devengado (27)", k: "_dev" },
+    { c: "Cuota deducible corriente (29)", k: "c_ded_corr" },
+    { c: "Cuota deducible inversión (31)", k: "c_ded_inv" },
+    { c: "Cuota deducible intracom. (37)", k: "c_ded_intra" },
+    { c: "Compensación REAGYP (41)", k: "c_reagyp" },
+    { c: "Σ Total deducible (45)", k: "_ded" },
+    { c: "Compensación períodos anteriores (78)", k: "c78" },
+    { c: "Σ Resultado (71)", k: "_71" },
+  ];
+  const calc = (m, k) => {
+    if (k === "_dev") return num(m.c21) + num(m.c10) + num(m.c4) + num(m.c_intra) + num(m.c_isp);
+    if (k === "_ded") return num(m.c_ded_corr) + num(m.c_ded_inv) + num(m.c_ded_intra) + num(m.c_reagyp);
+    if (k === "_71")  return calc(m, "_dev") - calc(m, "_ded") - num(m.c78);
+    return num(m[k]);
+  };
+  const total = (k) => keys.reduce((a, pk) => a + calc(bucket(pk).m303, k), 0);
+
+  t.innerHTML = `
+    <thead><tr>
+      <th>Concepto</th>
+      ${keys.map((k) => `<th class="num">${periodLabel(k)}</th>`).join("")}
+      <th class="num">Total anual</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map((r) => {
+        const fuerte = r.c.startsWith("Σ");
+        const cels = keys.map((pk) => `<td class="num">${fmt(calc(bucket(pk).m303, r.k))}</td>`).join("");
+        return `<tr${fuerte ? ' style="font-weight:600;background:#fafbfd;"' : ""}>
+          <td>${r.c}</td>
+          ${cels}
+          <td class="num"><strong>${fmt(total(r.k))}</strong></td>
+        </tr>`;
+      }).join("")}
+    </tbody>
+  `;
 }
 
 /* ---------- Render: Modelo 390 ---------- */
@@ -330,7 +501,7 @@ function render390() {
   form.style.pointerEvents = state.presenta390 ? "auto" : "none";
   document.querySelectorAll("[data-390]").forEach((el) => {
     el.value = state.m390[el.dataset["390"]] ?? 0;
-    el.oninput = () => { state.m390[el.dataset["390"]] = num(el.value); };
+    el.oninput = () => { state.m390[el.dataset["390"]] = num(el.value); autoSave(); };
   });
 }
 
@@ -338,7 +509,7 @@ function render390() {
 function renderContab() {
   document.querySelectorAll("[data-cont]").forEach((el) => {
     el.value = state.contab[el.dataset.cont] ?? 0;
-    el.oninput = () => { state.contab[el.dataset.cont] = num(el.value); };
+    el.oninput = () => { state.contab[el.dataset.cont] = num(el.value); autoSave(); };
   });
 }
 
@@ -346,7 +517,7 @@ function renderContab() {
 function renderEntidad() {
   document.querySelectorAll("[data-ent]").forEach((el) => {
     el.value = state.entidad[el.dataset.ent] ?? "";
-    el.oninput = () => { state.entidad[el.dataset.ent] = el.value; };
+    el.oninput = () => { state.entidad[el.dataset.ent] = el.value; autoSave(); };
   });
   const sel = document.getElementById("modo-decl");
   if (sel) {
@@ -364,6 +535,7 @@ function renderEntidad() {
       periodo303Activo = keys.includes(periodo303Activo) ? periodo303Activo : keys[0];
       periodoResultActivo = keys.includes(periodoResultActivo) ? periodoResultActivo : keys[0];
       save();
+      persistPeriodo();
       renderTodo();
     };
   }
@@ -448,9 +620,9 @@ function calcularRiesgo() {
   let dev303 = 0, ded303 = 0, reagyp303 = 0;
   todosLosBuckets().forEach((b) => {
     const m = b.m303;
-    dev303 += m.c21 + m.c10 + m.c4;
-    ded303 += m.c_ded_corr + m.c_ded_inv + m.c_ded_intra;
-    reagyp303 += m.c_reagyp || 0;
+    dev303 += num(m.c21) + num(m.c10) + num(m.c4);
+    ded303 += num(m.c_ded_corr) + num(m.c_ded_inv) + num(m.c_ded_intra);
+    reagyp303 += num(m.c_reagyp);
   });
   const dDev = Math.abs(devLibro - dev303);
   const dDed = Math.abs(dedLibro - ded303);
@@ -1044,6 +1216,7 @@ async function leerArchivoExcel(file) {
 }
 
 async function elegirHoja(hojas) {
+  if (!hojas.length) throw new Error("Archivo sin hojas con datos");
   if (hojas.length === 1) return hojas[0].rows;
   return new Promise((resolve) => {
     document.getElementById("modal-title").textContent = "Selecciona la hoja";
@@ -1438,22 +1611,14 @@ async function importarLibroDesdePdf(file, tipo, tri) {
     const txt = await extraerTextoPdf(file);
     // Heurística: cada línea con fecha + nº + texto + % iva + 2 importes
     const lineas = txt.split(/\n+/);
-    const filas = [];
-    const headerLike = ["FECHA", "Nº FACTURA", "CLIENTE", "PROVEEDOR", "TIPO IVA", "BASE", "CUOTA"];
-    filas.push(headerLike);
     const re = /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}-\d{2}-\d{2})\s+(\S+)\s+(.+?)\s+(21|10|4|0)\s*%?\s+([\-+]?[0-9.,]+)\s+([\-+]?[0-9.,]+)/;
+    const filas = [["fecha", "numero", "contraparte", "tipo iva", "base", "cuota"]];
     lineas.forEach((l) => {
       const m = l.match(re);
-      if (m) filas.push([m[1], m[2], m[3], parseFecha(m[1]) ? null : null, m[4], num303(m[5]), num303(m[6])].slice(0, 7));
+      if (m) filas.push([m[1], m[2], m[3].trim(), m[4], num303(m[5]), num303(m[6])]);
     });
     if (filas.length <= 1) { flash("No se han detectado líneas de factura en el PDF."); return; }
-
-    // Convertir al formato de filas planas (encabezado + filas)
-    const filasOrdenadas = [
-      ["fecha", "numero", "contraparte", "tipo iva", "base", "cuota"],
-      ...filas.slice(1).map((f) => [f[0], f[1], f[2], f[4], f[5], f[6]])
-    ];
-    importarLibroDesdeFilas(filasOrdenadas, tipo, tri);
+    importarLibroDesdeFilas(filas, tipo, tri);
   } catch (e) {
     flash("Error leyendo PDF: " + e.message);
   }
@@ -1533,5 +1698,27 @@ document.getElementById("link-plantilla").addEventListener("click", (e) => {
   XLSX.writeFile(wb, "plantilla-libros-iva.xlsx");
 });
 
+/* ---------- Drag & drop sobre las dropzones ---------- */
+function bindDropzones() {
+  document.querySelectorAll("label.dropzone").forEach((zone) => {
+    const inputId = zone.getAttribute("for");
+    const input = inputId && document.getElementById(inputId);
+    if (!input) return;
+    ["dragenter", "dragover"].forEach((ev) =>
+      zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add("drag-over"); }));
+    ["dragleave", "drop"].forEach((ev) =>
+      zone.addEventListener(ev, () => zone.classList.remove("drag-over")));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+      const dt = new DataTransfer();
+      Array.from(e.dataTransfer.files).forEach((f) => dt.items.add(f));
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  });
+}
+
 /* ---------- Init ---------- */
+bindDropzones();
 renderTodo();

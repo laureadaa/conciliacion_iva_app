@@ -25,6 +25,9 @@
       <input id="ejercicio" type="number" min="2000" max="2099" value="2025" />
     </label>
     <button id="btn-ejemplo" class="btn ghost" type="button">Cargar ejemplo</button>
+    <label class="btn ghost" for="imp-json" title="Importar copia de seguridad JSON">📂 Importar</label>
+    <input id="imp-json" type="file" accept="application/json,.json" hidden />
+    <button id="btn-export-json" class="btn ghost" type="button" title="Exportar copia de seguridad JSON">💾 Exportar</button>
     <button id="btn-limpiar" class="btn ghost" type="button">Limpiar</button>
     <button id="btn-guardar" class="btn primary" type="button">Guardar</button>
   </div>
@@ -190,6 +193,7 @@
     <div class="row-bar">
       <div class="trimester-switch" data-switch="tri-303"></div>
       <div class="header-actions">
+        <button class="btn small" id="btn-303-desde-libro" type="button" title="Volcar los totales del libro del período activo a las casillas del 303">⤴ Rellenar 303 desde libros</button>
         <label class="btn small primary" for="imp-303-pdf">📄 Subir PDFs del Modelo 303 (varios a la vez)</label>
         <input id="imp-303-pdf" type="file" accept="application/pdf" multiple hidden />
       </div>
@@ -235,6 +239,10 @@
           <div class="casilla-row"><span>Base (12)</span><input data-303="b_isp" type="number" step="0.01" /></div>
           <div class="casilla-row"><span>Cuota (13)</span><input data-303="c_isp" type="number" step="0.01" /></div>
         </div>
+        <div class="casilla-group">
+          <label>Compensaciones REAGYP (41)</label>
+          <div class="casilla-row"><span>Cuota (41)</span><input data-303="c_reagyp" type="number" step="0.01" /></div>
+        </div>
       </div>
     </div>
 
@@ -259,11 +267,27 @@
       </div>
     </div>
 
+    <div class="card">
+      <h3>Compensaciones de períodos anteriores</h3>
+      <div class="grid casillas">
+        <div class="casilla-group">
+          <label>Cuotas a compensar de períodos anteriores (78)</label>
+          <div class="casilla-row"><span>Cuota (78)</span><input data-303="c78" type="number" step="0.01" /></div>
+        </div>
+      </div>
+    </div>
+
     <div class="card resumen-303">
       <div class="resumen-line"><span>Total cuota devengada (27)</span><strong id="r303-dev">0,00</strong></div>
       <div class="resumen-line"><span>Total a deducir (45)</span><strong id="r303-ded">0,00</strong></div>
-      <div class="resumen-line big"><span>Resultado régimen general (46)</span><strong id="r303-res">0,00</strong></div>
+      <div class="resumen-line"><span>Resultado régimen general (46)</span><strong id="r303-res">0,00</strong></div>
+      <div class="resumen-line"><span>− compensación cuotas anteriores (78)</span><strong id="r303-78">0,00</strong></div>
       <div class="resumen-line big"><span>A ingresar / a devolver (71)</span><strong id="r303-71">0,00</strong></div>
+    </div>
+
+    <div class="card">
+      <h3>Resumen anual del Modelo 303</h3>
+      <table class="recon-table" id="resumen-anual-303"></table>
     </div>
   </section>
 
