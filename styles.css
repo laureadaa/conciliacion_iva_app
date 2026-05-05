@@ -363,6 +363,50 @@ label.btn { display: inline-block; }
 }
 .dropzone:hover { background: var(--beige); border-color: var(--primary-dark); }
 .dropzone.drag-over { background: var(--beige); border-color: var(--primary-dark); transform: scale(1.01); }
+
+.universal-bar {
+  padding: 14px 24px;
+  background: linear-gradient(180deg, #fff 0%, var(--bg) 100%);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dropzone.universal {
+  margin: 0;
+  padding: 18px 24px;
+  font-size: 14px;
+}
+.dropzone.universal strong { font-size: 15px; }
+.status-bar {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  align-items: center;
+  min-height: 18px;
+}
+.status-bar .step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.status-bar .step.done { color: var(--ok); border-color: var(--ok-bg); background: var(--ok-bg); }
+.status-bar .step.empty { color: var(--muted); }
+.status-bar .step strong { font-weight: 600; }
+.status-bar .next-hint {
+  margin-left: auto;
+  color: var(--primary);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.status-bar .next-hint:hover { text-decoration: underline; }
 .dropzone strong { color: var(--primary); font-size: 13px; }
 .dropzone span { color: var(--muted); font-size: 11px; }
 .dropzone.secondary {

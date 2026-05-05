@@ -2382,6 +2382,137 @@ function bindDropzones() {
   });
 }
 
+/* ---------- Zona universal: detecta el tipo de archivo y enruta ----------
+   El usuario suelta cualquier Excel/CSV/PDF en una única zona y nosotros
+   decidimos si es libro de ventas/compras o Modelo 303/390. */
+async function manejarArchivoUniversal(file) {
+  try {
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const lower = file.name.toLowerCase();
+
+    if (ext === "pdf") {
+      const lineas = await extraerLineasPdf(file);
+      const txt = lineas.map((l) => l.text).join("\n");
+
+      // ¿Es modelo 303? Buscamos casillas conocidas; si encontramos varias,
+      // lo es. Si no, miramos si parece 390 o libro PDF.
+      const detect303 = detectarCasillas303(txt, lineas);
+      const numCasillas303 = Object.keys(detect303).length;
+      if (numCasillas303 >= 3 || /modelo\s*303|303[\s_-]/i.test(lower)) {
+        await importarPdf303Multiple([file], periodo303Activo);
+        return;
+      }
+      if (/modelo\s*390|390[\s_-]/i.test(lower) || /resumen\s*anual/i.test(txt)) {
+        await importarPdf390(file);
+        return;
+      }
+      // Asumimos libro PDF — auto-detectar emitidas/recibidas
+      const tipoLibro = detectarTipoDesdeNombre(file.name) ||
+                        detectarTipoDesdeTextoPdf(txt) || "emitidas";
+      await importarLibroDesdePdf(file, tipoLibro, periodoLibroActivo);
+      return;
+    }
+
+    if (["xlsx", "xls", "csv"].includes(ext)) {
+      const hojas = await leerArchivoExcel(file);
+      const filas = await elegirHoja(hojas);
+      const tipoLibro = detectarTipoDesdeNombre(file.name) ||
+                        detectarTipoDesdeFilas(filas) || "emitidas";
+      importarLibroDesdeFilas(filas, tipoLibro, periodoLibroActivo);
+      return;
+    }
+    flash("Tipo de archivo no reconocido: " + file.name);
+  } catch (err) {
+    flash("Error procesando " + file.name + ": " + err.message);
+  }
+}
+
+function detectarTipoDesdeNombre(name) {
+  const n = String(name || "").toLowerCase();
+  if (/(venta|emiti|emisi|ingreso|repercut|cliente)/i.test(n)) return "emitidas";
+  if (/(compra|recib|gasto|soport|proveedor)/i.test(n)) return "recibidas";
+  return null;
+}
+function detectarTipoDesdeFilas(filas) {
+  const headerIdx = detectarFilaCabecera(filas);
+  const headers = (filas[headerIdx] || []).map((h) => _normHeader(String(h ?? "")));
+  if (headers.some((h) => h.includes("cliente"))) return "emitidas";
+  if (headers.some((h) => h.includes("proveedor"))) return "recibidas";
+  // Cuenta de mayor (PGC): 43xxx → cliente (emitidas) · 40xxx → proveedor (recibidas)
+  const idxMayor = headers.findIndex((h) => h === "mayor" || h === "cuenta" || h === "cuenta mayor");
+  if (idxMayor >= 0) {
+    let votos = { emitidas: 0, recibidas: 0 };
+    const fin = Math.min(headerIdx + 1 + 20, filas.length);
+    for (let i = headerIdx + 1; i < fin; i++) {
+      const v = String(filas[i][idxMayor] ?? "").trim();
+      if (/^43\d/.test(v)) votos.emitidas++;
+      else if (/^40\d/.test(v)) votos.recibidas++;
+    }
+    if (votos.emitidas > votos.recibidas) return "emitidas";
+    if (votos.recibidas > votos.emitidas) return "recibidas";
+  }
+  return null;
+}
+function detectarTipoDesdeTextoPdf(txt) {
+  const t = String(txt || "").toLowerCase();
+  if (/libro.*(venta|emiti|repercut)|facturas?\s*emitidas/.test(t)) return "emitidas";
+  if (/libro.*(compra|recib|soport)|facturas?\s*recibidas/.test(t)) return "recibidas";
+  return null;
+}
+
+document.getElementById("imp-universal").addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";
+  for (const f of files) await manejarArchivoUniversal(f);
+  refrescarBarraEstado();
+});
+
+/* ---------- Barra de estado: progreso del flujo ---------- */
+function refrescarBarraEstado() {
+  const sb = document.getElementById("status-bar");
+  if (!sb) return;
+  let totalFacturas = 0;
+  let periodosCon303 = 0;
+  todosLosBuckets().forEach((b) => {
+    totalFacturas += b.emitidas.length + b.recibidas.length;
+    const m = b.m303;
+    const algoTeclado = num(m.c21) + num(m.c10) + num(m.c4) +
+                        num(m.c_ded_corr) + num(m.c_ded_inv) + num(m.c_ded_intra) +
+                        num(m.c_reagyp);
+    if (algoTeclado !== 0) periodosCon303++;
+  });
+  const tieneEnt = !!(state.entidad.nombre || state.entidad.nif);
+  const tieneCont = num(state.contab.c477) || num(state.contab.c472) ||
+                    num(state.contab.c4750) || num(state.contab.c4700);
+  const partes = [
+    `<span class="step ${tieneEnt ? "done" : "empty"}">${tieneEnt ? "✓" : "○"} Entidad${tieneEnt ? `: ${escapeHtml(state.entidad.nombre || state.entidad.nif)}` : ""}</span>`,
+    `<span class="step ${totalFacturas ? "done" : "empty"}">${totalFacturas ? "✓" : "○"} Libros: <strong>${totalFacturas}</strong> facturas</span>`,
+    `<span class="step ${periodosCon303 ? "done" : "empty"}">${periodosCon303 ? "✓" : "○"} 303: <strong>${periodosCon303}</strong>/${periodKeys(state.modoDeclaracion).length} períodos</span>`,
+    `<span class="step ${tieneCont ? "done" : "empty"}">${tieneCont ? "✓" : "○"} Contabilidad</span>`,
+  ];
+  // Hint del siguiente paso
+  let nextHint = "";
+  if (!tieneEnt) nextHint = `<a href="#" class="next-hint" data-go="entidad">→ Empieza por Entidad</a>`;
+  else if (!totalFacturas) nextHint = `<a href="#" class="next-hint" data-go="libros">→ Sube tus libros</a>`;
+  else if (!periodosCon303) nextHint = `<a href="#" class="next-hint" data-go="m303">→ Revisa el Modelo 303</a>`;
+  else nextHint = `<a href="#" class="next-hint" data-go="result">→ Ver Conciliación</a>`;
+  sb.innerHTML = partes.join("") + nextHint;
+  sb.querySelectorAll("[data-go]").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      const tab = document.querySelector(`.tab[data-tab="${a.dataset.go}"]`);
+      if (tab) tab.click();
+    });
+  });
+}
+
+// Refrescar la barra en cada save() y en cada render global.
+const _save_orig = save;
+save = function () { _save_orig(); refrescarBarraEstado(); };
+const _renderTodo_orig = renderTodo;
+renderTodo = function () { _renderTodo_orig(); refrescarBarraEstado(); };
+
 /* ---------- Init ---------- */
 bindDropzones();
 renderTodo();
+refrescarBarraEstado();

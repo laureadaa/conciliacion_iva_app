@@ -33,6 +33,16 @@
   </div>
 </header>
 
+<!-- Zona universal: cualquier libro o modelo, la app detecta qué es -->
+<section class="universal-bar">
+  <label class="dropzone universal" for="imp-universal">
+    <strong>📥 Suelta aquí cualquier libro o modelo (Excel · CSV · PDF)</strong>
+    <span>La app detecta automáticamente si es libro de ventas/compras o Modelo 303/390 y lo procesa solo.</span>
+  </label>
+  <input id="imp-universal" type="file" accept=".xlsx,.xls,.csv,application/pdf" multiple hidden />
+  <div id="status-bar" class="status-bar"></div>
+</section>
+
 <nav class="tabs" role="tablist">
   <button class="tab active" data-tab="entidad" role="tab">0. Entidad</button>
   <button class="tab" data-tab="libros" role="tab">1. Libros de IVA</button>
