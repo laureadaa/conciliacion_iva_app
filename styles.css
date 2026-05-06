@@ -83,8 +83,10 @@ th { background: #fafbfd; font-weight: 600; font-size: 12px; color: var(--muted)
 .num { text-align: right; font-family: ui-monospace, SFMono-Regular, monospace; }
 tr.fila-resultado td { background: var(--beige); font-weight: 700; font-size: 14px; }
 tr.fila-resultado td:not(:first-child) { color: var(--primary); }
-tr.diff-warn td { background: var(--warn-bg); color: var(--warn); }
-tr.diff-ok td { color: var(--ok); }
+tr.fila-fuerte td { font-weight: 700; background: #fafbfd; }
+tr.sep td { padding: 4px; border-bottom: none; }
+.table-wrap { overflow-x: auto; }
+.card h2 small { color: var(--muted); font-weight: normal; font-size: 12px; margin-left: 8px; }
 
 input.celda-303 {
   width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px;
