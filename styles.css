@@ -74,6 +74,22 @@ main {
 }
 .contab-grid input:focus { border-color: var(--primary); outline: none; }
 
+.detalles-facturas {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.detalles-facturas summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.detalles-facturas summary:hover { color: var(--primary-dark); }
+.lista-detalle { width: 100%; font-size: 12px; }
+.lista-detalle th { background: #fafbfd; position: sticky; top: 0; }
+.lista-detalle th, .lista-detalle td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+
 .dropzone {
   display: flex;
   flex-direction: column;

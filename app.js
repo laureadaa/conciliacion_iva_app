@@ -209,12 +209,29 @@ function aplicarMapeoMultitipo(datos, m, headers) {
 }
 
 /* ---------- Excel / CSV ---------- */
+/* Lee TODAS las hojas, las puntúa por número de coincidencias con HEADER_HINTS
+   en su mejor candidato a fila de cabecera y elige la que más se parece a un
+   libro de IVA. Así se ignoran hojas de metadatos y se cogen las de datos
+   aunque no sean la primera. */
 async function leerArchivo(file) {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { cellDates: false });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" })
-    .filter((r) => r.some((c) => c !== "" && c != null));
+  let mejor = { rows: [], score: -1, name: wb.SheetNames[0] || "" };
+  for (const name of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: "" })
+      .filter((r) => r.some((c) => c !== "" && c != null));
+    if (!rows.length) continue;
+    const idx = detectarFilaCabecera(rows);
+    const cab = (rows[idx] || []).map(normHeader);
+    let score = 0;
+    Object.values(HINTS).forEach((claves) => {
+      if (cab.some((c) => c && claves.some((k) => c === k || c.includes(k)))) score++;
+    });
+    if (detectarMultiRate(cab)) score += 5;     // bonus si parece multi-tipo
+    score += Math.min(rows.length / 200, 3);    // bonus por tamaño
+    if (score > mejor.score) mejor = { rows, score, name };
+  }
+  return mejor.rows;
 }
 
 /* ---------- PDF (Modelo 303) ---------- */
@@ -422,10 +439,11 @@ function render() {
   document.getElementById("info-390").textContent = tiene390
     ? `✓ 390 cargado`
     : "PDF resumen anual";
-  // Reflejar saldos contables en sus inputs
+  // Reflejar saldos contables en sus inputs (vacío si 0, sin reescribir mientras editan)
   document.querySelectorAll("input[data-cont]").forEach((el) => {
-    const v = state.contab[el.dataset.cont] || 0;
-    if (parseFloat(el.value || "0") !== v) el.value = v;
+    if (document.activeElement === el) return; // no machacar al usuario tecleando
+    const v = num(state.contab[el.dataset.cont] || 0);
+    el.value = v === 0 ? "" : fmt(v);
   });
 
   const ventasT = [1,2,3,4].map((t) => totales303Libro(state.ventas, t));
@@ -519,6 +537,7 @@ function render() {
     state.ventas.length || state.compras.length ? "none" : "";
 
   renderAnual();
+  renderListaFacturas();
 }
 
 /* Conciliación anual: Σ libros ↔ Σ 303 ↔ 390 ↔ Cuentas contables */
@@ -853,5 +872,98 @@ document.getElementById("btn-clear").addEventListener("click", () => {
     save();
   }
 });
+document.getElementById("btn-ejemplo").addEventListener("click", () => {
+  state = ejemploDataset();
+  save();
+  toast("Ejemplo cargado");
+});
 
 render();
+
+/* ---------- Dataset de ejemplo (para que el usuario vea funcionando la app) ---------- */
+function ejemploDataset() {
+  const s = estadoInicial();
+  s.ejercicio = 2025;
+  // Ventas: una factura por trimestre, 21 % y 10 %
+  s.ventas = [
+    { fecha: "2025-01-15", contraparte: "Cliente A", tipoIva: 21, base: 10000, cuota: 2100 },
+    { fecha: "2025-02-22", contraparte: "Cliente B", tipoIva: 10, base: 3000,  cuota: 300 },
+    { fecha: "2025-04-08", contraparte: "Cliente C", tipoIva: 21, base: 12000, cuota: 2520 },
+    { fecha: "2025-07-12", contraparte: "Cliente A", tipoIva: 21, base: 8500,  cuota: 1785 },
+    { fecha: "2025-10-30", contraparte: "Cliente D", tipoIva: 21, base: 15000, cuota: 3150 },
+    { fecha: "2025-12-15", contraparte: "Cliente E", tipoIva: 4,  base: 1200,  cuota: 48 },
+  ];
+  s.compras = [
+    { fecha: "2025-01-20", contraparte: "Proveedor X", tipoIva: 21, base: 4000, cuota: 840 },
+    { fecha: "2025-03-05", contraparte: "Proveedor Y", tipoIva: 21, base: 2500, cuota: 525 },
+    { fecha: "2025-05-18", contraparte: "Proveedor X", tipoIva: 21, base: 3200, cuota: 672 },
+    { fecha: "2025-08-09", contraparte: "Proveedor Z", tipoIva: 10, base: 1500, cuota: 150 },
+    { fecha: "2025-11-22", contraparte: "Proveedor X", tipoIva: 21, base: 5000, cuota: 1050 },
+  ];
+  // 303 declarado con una pequeña diferencia en 2T para que se vea el aviso
+  s.m303 = {
+    1: { b21: 10000, c21: 2100, b10: 3000, c10: 300, b_ded: 6500, c_ded: 1365 },
+    2: { b21: 11800, c21: 2478,                          b_ded: 3200, c_ded: 672 }, // 2T: declarado 2.478 vs libro 2.520
+    3: { b21: 8500,  c21: 1785,                          b_ded: 1500, c_ded: 150 },
+    4: { b21: 15000, c21: 3150, b4: 1200, c4: 48,        b_ded: 5000, c_ded: 1050 },
+  };
+  // Modelo 390 anual (suma cuadrada con la del 303)
+  s.m390 = {
+    b21: 45300, c21: 9513, b10: 3000, c10: 300, b4: 1200, c4: 48,
+    b_ded: 16200, c_ded: 3237,
+  };
+  // Saldos contables que cuadran con el libro (con un descuadre de 5 € para mostrar "REVISAR")
+  s.contab = {
+    c477: 9903,    // libro: 9903 ✓
+    c472: 3237,    // libro: 3237 ✓
+    c4750: 6666,
+    c4700: 0,
+  };
+  return s;
+}
+
+/* ---------- Lista de facturas importadas (panel desplegable) ---------- */
+function renderListaFacturas() {
+  const det = document.getElementById("det-facturas");
+  const cont = document.getElementById("lista-facturas");
+  if (!det || !cont) return;
+  const tot = state.ventas.length + state.compras.length;
+  if (!tot) { det.hidden = true; return; }
+  det.hidden = false;
+  det.querySelector("summary").textContent = `Ver facturas importadas (${tot})`;
+
+  const tabla = (titulo, lista) => {
+    if (!lista.length) return "";
+    const porT = { 1: 0, 2: 0, 3: 0, 4: 0, sin: 0 };
+    const tot = lista.reduce((a, f) => a + f.cuota, 0);
+    const totBase = lista.reduce((a, f) => a + f.base, 0);
+    for (const f of lista) {
+      const t = trimestreDeFecha(f.fecha);
+      if (t) porT[t]++; else porT.sin++;
+    }
+    return `
+      <h4 style="margin:14px 0 6px;font-size:13px;">${titulo} — ${lista.length} líneas · base ${fmt(totBase)} € · cuota ${fmt(tot)} €
+        <small style="color:var(--muted);font-weight:normal;">
+          (1T: ${porT[1]}, 2T: ${porT[2]}, 3T: ${porT[3]}, 4T: ${porT[4]}${porT.sin ? `, sin fecha: ${porT.sin}` : ""})
+        </small>
+      </h4>
+      <div class="table-wrap" style="max-height:300px;overflow-y:auto;">
+        <table class="lista-detalle">
+          <thead><tr>
+            <th>Fecha</th><th>Contraparte</th>
+            <th class="num">Tipo</th><th class="num">Base</th><th class="num">Cuota</th>
+          </tr></thead>
+          <tbody>
+            ${lista.map((f) => `<tr>
+              <td>${escapeHtml(f.fecha)}</td>
+              <td>${escapeHtml(f.contraparte || "—")}</td>
+              <td class="num">${f.tipoIva} %</td>
+              <td class="num">${fmt(f.base)}</td>
+              <td class="num">${fmt(f.cuota)}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  };
+  cont.innerHTML = tabla("📤 Ventas", state.ventas) + tabla("📥 Compras", state.compras);
+}
