@@ -90,6 +90,23 @@ main {
 .lista-detalle th { background: #fafbfd; position: sticky; top: 0; }
 .lista-detalle th, .lista-detalle td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
 
+/* Badge de riesgo y botón de export */
+.card h2 { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.badge-riesgo {
+  padding: 4px 12px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+}
+.badge-riesgo.bajo { background: #92D050; color: #fff; }
+.badge-riesgo.moderado { background: #FFD966; color: #5c3d00; }
+.badge-riesgo.alto { background: #FF6666; color: #fff; }
+.btn-export {
+  margin-left: auto;
+  padding: 6px 14px; border-radius: 6px;
+  background: var(--ok); color: white; border: none;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.btn-export:hover { background: #0e6b65; }
+
 .dropzone {
   display: flex;
   flex-direction: column;

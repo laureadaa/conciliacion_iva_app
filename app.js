@@ -74,11 +74,17 @@ function trimestreDeFecha(f) {
 function normTipoIva(v) {
   const n = parseFloat(String(v ?? "").replace(",", "."));
   if (!isFinite(n)) return 21;
-  if (Math.abs(n - 21) < 1) return 21;
-  if (Math.abs(n - 10) < 1) return 10;
-  if (Math.abs(n - 4) < 1) return 4;
+  if (Math.abs(n - 21) < 0.5) return 21;
+  if (Math.abs(n - 12) < 0.4) return 12;     // REAGYP general
+  if (Math.abs(n - 10.5) < 0.4) return 10.5; // REAGYP pesca
+  if (Math.abs(n - 10) < 0.4) return 10;
+  if (Math.abs(n - 4) < 0.5) return 4;
   if (Math.abs(n - 0) < 0.5) return 0;
   return Math.round(n);
+}
+function esReagyp(tipoIva) {
+  const n = parseFloat(tipoIva);
+  return Math.abs(n - 12) < 0.4 || Math.abs(n - 10.5) < 0.4;
 }
 
 function normHeader(h) {
@@ -308,6 +314,7 @@ const CASILLAS = {
   b4:  "07", c4:  "09",
   c_intra: "11", c_isp: "13",
   b_ded: "28", c_ded: "29",
+  c_reagyp: "41",
   c71: "71",
 };
 
@@ -403,11 +410,19 @@ function save() {
 
 /* ---------- Cálculos ---------- */
 function totales303Libro(facturas, t) {
-  const r = { b21: 0, c21: 0, b10: 0, c10: 0, b4: 0, c4: 0, base_total: 0, cuota_total: 0 };
+  const r = { b21: 0, c21: 0, b10: 0, c10: 0, b4: 0, c4: 0,
+              base_total: 0, cuota_total: 0,
+              base_reagyp: 0, cuota_reagyp: 0 };
   for (const f of facturas) {
     if (t != null) {
       const tt = trimestreDeFecha(f.fecha);
       if (tt !== t) continue;
+    }
+    if (esReagyp(f.tipoIva)) {
+      // REAGYP: bucket separado (compensación, casilla 41)
+      r.base_reagyp += f.base;
+      r.cuota_reagyp += f.cuota;
+      continue;
     }
     if (f.tipoIva === 21) { r.b21 += f.base; r.c21 += f.cuota; }
     else if (f.tipoIva === 10) { r.b10 += f.base; r.c10 += f.cuota; }
@@ -462,9 +477,10 @@ function render() {
     { c: "Cuota 4 % (09)",   k: "c4",  lib: ventasT.map((p) => p.c4),  totL: ventasA.c4 },
     { c: "Base IVA deducible (28)",  k: "b_ded", lib: comprasT.map((p) => p.base_total),  totL: comprasA.base_total },
     { c: "Cuota IVA deducible (29)", k: "c_ded", lib: comprasT.map((p) => p.cuota_total), totL: comprasA.cuota_total },
+    { c: "Compensación REAGYP (41)", k: "c_reagyp", lib: comprasT.map((p) => p.cuota_reagyp), totL: comprasA.cuota_reagyp },
     { c: "Resultado (71)",   k: "c71",
-      lib: ventasT.map((p, i) => p.cuota_total - comprasT[i].cuota_total),
-      totL: ventasA.cuota_total - comprasA.cuota_total,
+      lib: ventasT.map((p, i) => p.cuota_total - comprasT[i].cuota_total - comprasT[i].cuota_reagyp),
+      totL: ventasA.cuota_total - comprasA.cuota_total - comprasA.cuota_reagyp,
       destacado: true },
   ];
 
@@ -536,8 +552,48 @@ function render() {
   document.getElementById("hint-resumen").style.display =
     state.ventas.length || state.compras.length ? "none" : "";
 
+  renderRiesgo();
   renderAnual();
   renderListaFacturas();
+}
+
+/* Cálculo de riesgo global. Compara la cuota total devengada y deducible del
+   libro con la del 303 (suma trimestral). Tolerancias estándar: ±1 € por
+   periodo y ±1 % global. */
+function calcularRiesgo() {
+  const ventasA = totales303Libro(state.ventas, null);
+  const comprasA = totales303Libro(state.compras, null);
+  const sum = (k) => [1,2,3,4].reduce((a, t) => a + num(state.m303[t][k] || 0), 0);
+  const dDev = ventasA.cuota_total - sum("c21") - sum("c10") - sum("c4");
+  const dDed = comprasA.cuota_total - sum("c_ded");
+  const dRea = comprasA.cuota_reagyp - sum("c_reagyp");
+  const difTotal = Math.abs(dDev) + Math.abs(dDed) + Math.abs(dRea);
+  const baseTotal = Math.abs(sum("c21") + sum("c10") + sum("c4")) + Math.abs(sum("c_ded"));
+  const pct = baseTotal > 0 ? (difTotal / baseTotal) * 100 : 0;
+  let nivel;
+  if (difTotal <= 4 && pct <= 1) nivel = "BAJO";
+  else if (difTotal <= 20 && pct <= 5) nivel = "MODERADO";
+  else nivel = "ALTO";
+  return { nivel, dDev, dDed, dRea, difTotal, pct };
+}
+
+function renderRiesgo() {
+  const badge = document.getElementById("badge-riesgo");
+  const btnExp = document.getElementById("btn-export-excel");
+  if (!badge) return;
+  const tieneDatos = (state.ventas.length || state.compras.length);
+  const tiene303 = hay303();
+  if (!tieneDatos || !tiene303) {
+    badge.hidden = true;
+    if (btnExp) btnExp.hidden = !tieneDatos;
+    return;
+  }
+  const r = calcularRiesgo();
+  badge.hidden = false;
+  badge.className = "badge-riesgo " + r.nivel.toLowerCase();
+  badge.textContent = `Riesgo ${r.nivel} · dif. total ${fmt(r.difTotal)} € · ${r.pct.toFixed(2)} %`;
+  badge.title = `Devengado: ${fmt(r.dDev)} · Deducible: ${fmt(r.dDed)} · REAGYP: ${fmt(r.dRea)}`;
+  if (btnExp) btnExp.hidden = false;
 }
 
 /* Conciliación anual: Σ libros ↔ Σ 303 ↔ 390 ↔ Cuentas contables */
@@ -570,6 +626,8 @@ function renderAnual() {
     { c: "Cuota IVA deducible", lib: comprasA.cuota_total, s303: sum303("c_ded"), m390: state.m390.c_ded,
       cont: state.contab.c472, contLabel: "Cuenta 472",
       destacado: true },
+    { c: "Compensación REAGYP", lib: comprasA.cuota_reagyp, s303: sum303("c_reagyp"),
+      m390: state.m390.c_reagyp || 0 },
     { c: "Resultado IVA (devengado − deducible)",
       lib: ventasA.cuota_total - comprasA.cuota_total,
       s303: sum303("c71") || (sum303("c21") + sum303("c10") + sum303("c4") - sum303("c_ded")),
@@ -937,6 +995,110 @@ document.getElementById("btn-ejemplo").addEventListener("click", () => {
   save();
   toast("Ejemplo cargado");
 });
+document.getElementById("btn-export-excel").addEventListener("click", () => {
+  exportarPapelDeTrabajo();
+});
+
+/* Exporta un Excel con varias hojas: Resumen + Conciliación trimestral
+   (libro vs 303) + Conciliación anual (libro vs 303 vs 390 vs contab) +
+   Listado de facturas. Todo lo que hay en pantalla, en un único fichero. */
+function exportarPapelDeTrabajo() {
+  if (!window.XLSX) { toast("Esperando motor Excel", true); return; }
+  const wb = XLSX.utils.book_new();
+  const ventasA = totales303Libro(state.ventas, null);
+  const comprasA = totales303Libro(state.compras, null);
+  const sum303 = (k) => [1,2,3,4].reduce((a, t) => a + num(state.m303[t][k] || 0), 0);
+  const r = calcularRiesgo();
+
+  // Hoja 1: resumen ejecutivo
+  const resumen = [
+    ["CONCILIACIÓN DEL IVA — Papel de trabajo"],
+    [],
+    ["Ejercicio", state.ejercicio],
+    ["Fecha informe", new Date().toLocaleDateString("es-ES")],
+    ["Nivel de riesgo", r.nivel],
+    ["Diferencia total (€)", round2(r.difTotal)],
+    ["Desviación global (%)", round2(r.pct)],
+    [],
+    ["TOTALES ANUALES", "Libro", "Σ 303", "Modelo 390", "Cuenta contable", "Diferencia"],
+    ["Devengado total",
+      ventasA.cuota_total,
+      sum303("c21") + sum303("c10") + sum303("c4"),
+      num(state.m390.c21) + num(state.m390.c10) + num(state.m390.c4),
+      state.contab.c477,
+      round2(r.dDev)],
+    ["Deducible total",
+      comprasA.cuota_total,
+      sum303("c_ded"),
+      state.m390.c_ded || 0,
+      state.contab.c472,
+      round2(r.dDed)],
+    ["REAGYP",
+      comprasA.cuota_reagyp,
+      sum303("c_reagyp"),
+      state.m390.c_reagyp || 0,
+      "",
+      round2(r.dRea)],
+    ["Resultado IVA",
+      ventasA.cuota_total - comprasA.cuota_total - comprasA.cuota_reagyp,
+      sum303("c21") + sum303("c10") + sum303("c4") - sum303("c_ded") - sum303("c_reagyp"),
+      state.m390.c_resultado || 0,
+      num(state.contab.c4750) - num(state.contab.c4700),
+      ""],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumen), "Resumen");
+
+  // Hoja 2: conciliación libro vs 303 trimestre
+  const conc303 = [["CONCILIACIÓN LIBROS ↔ MODELO 303 — POR TRIMESTRE"], [],
+    ["Trimestre", "Concepto", "Libro (€)", "303 (€)", "Diferencia (€)", "Estado"]];
+  const camposT = [
+    { c: "Base 21 % (01)", lib: (v, c) => v.b21,         dec: "b21" },
+    { c: "Cuota 21 % (03)", lib: (v, c) => v.c21,        dec: "c21" },
+    { c: "Base 10 % (04)", lib: (v, c) => v.b10,         dec: "b10" },
+    { c: "Cuota 10 % (06)", lib: (v, c) => v.c10,        dec: "c10" },
+    { c: "Base 4 % (07)", lib: (v, c) => v.b4,           dec: "b4" },
+    { c: "Cuota 4 % (09)", lib: (v, c) => v.c4,          dec: "c4" },
+    { c: "Base IVA deducible (28)", lib: (v, c) => c.base_total,  dec: "b_ded" },
+    { c: "Cuota IVA deducible (29)", lib: (v, c) => c.cuota_total, dec: "c_ded" },
+    { c: "Compensación REAGYP (41)", lib: (v, c) => c.cuota_reagyp, dec: "c_reagyp" },
+  ];
+  for (let t = 1; t <= 4; t++) {
+    const v = totales303Libro(state.ventas, t);
+    const c = totales303Libro(state.compras, t);
+    for (const f of camposT) {
+      const lib = f.lib(v, c);
+      const dec = num(state.m303[t][f.dec] || 0);
+      const dif = lib - dec;
+      const est = Math.abs(dif) <= TOL_EUR ? "OK" : "REVISAR";
+      conc303.push([`${t}T`, f.c, round2(lib), round2(dec), round2(dif), est]);
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(conc303), "Concil 303");
+
+  // Hoja 3: facturas detalle
+  const detalle = (titulo, lista) => {
+    if (!lista.length) return null;
+    const rows = [
+      [titulo],
+      [],
+      ["Fecha", "Trimestre", "Contraparte", "Tipo IVA %", "Base (€)", "Cuota (€)", "REAGYP"],
+      ...lista.map((f) => [f.fecha, "T" + (trimestreDeFecha(f.fecha) || "?"),
+                           f.contraparte, f.tipoIva, f.base, f.cuota,
+                           esReagyp(f.tipoIva) ? "Sí" : ""]),
+    ];
+    return rows;
+  };
+  const dV = detalle("FACTURAS EMITIDAS (VENTAS)", state.ventas);
+  if (dV) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dV), "Detalle ventas");
+  const dC = detalle("FACTURAS RECIBIDAS (COMPRAS)", state.compras);
+  if (dC) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dC), "Detalle compras");
+
+  const fname = `Conciliacion_IVA_${state.ejercicio}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  toast("Excel generado · " + fname);
+}
+
+function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 
 render();
 
