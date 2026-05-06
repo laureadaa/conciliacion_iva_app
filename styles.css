@@ -105,6 +105,48 @@ main {
 .dropzone:hover, .dropzone.drag { background: #ebd2ac; border-color: var(--primary-dark); }
 .dropzone strong { color: var(--primary); font-size: 14px; }
 .dropzone span { color: var(--muted); font-size: 12px; }
+.dropzone { position: relative; }
+.dropzone.loading { pointer-events: none; }
+.dz-loading {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(245, 230, 208, .92);
+  border-radius: 10px;
+  color: var(--primary); font-weight: 600; font-size: 13px;
+}
+
+/* Spinner reutilizable */
+.spinner {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  flex-shrink: 0;
+}
+.spinner.big { width: 32px; height: 32px; border-width: 3px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Overlay global de procesamiento (multi-archivo) */
+#busy {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, .35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+}
+#busy[hidden] { display: none; }
+.busy-card {
+  background: white; padding: 22px 28px; border-radius: 10px;
+  display: flex; align-items: center; gap: 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.25);
+  font-size: 14px; min-width: 260px;
+}
+.busy-card #busy-msg { line-height: 1.4; color: var(--text); }
+.busy-card #busy-progress {
+  font-size: 12px; color: var(--muted); margin-top: 4px;
+  font-family: ui-monospace, monospace;
+}
 
 .card {
   background: var(--panel);

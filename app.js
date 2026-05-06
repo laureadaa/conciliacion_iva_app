@@ -621,6 +621,46 @@ function renderAnual() {
   `;
 }
 
+/* ---------- Indicadores de carga ----------
+   - dzBusy/dzClear muestran un spinner sobre la propia dropzone.
+   - busyOpen/busyClose superponen un overlay global con mensaje y opcional
+     contador de progreso. Útil para procesar varios PDFs a la vez.
+   - tick() cede al hilo principal para que el navegador pinte antes de un
+     bloque sincrónico pesado (parsing de Excel/PDF). */
+function dzBusy(inputId, msg = "Leyendo archivo…") {
+  const zone = document.querySelector(`label[for="${inputId}"]`);
+  if (!zone) return;
+  zone.classList.add("loading");
+  let load = zone.querySelector(".dz-loading");
+  if (!load) {
+    load = document.createElement("div");
+    load.className = "dz-loading";
+    zone.appendChild(load);
+  }
+  load.innerHTML = `<span class="spinner"></span><span>${msg}</span>`;
+}
+function dzClear(inputId) {
+  const zone = document.querySelector(`label[for="${inputId}"]`);
+  if (!zone) return;
+  zone.classList.remove("loading");
+  const load = zone.querySelector(".dz-loading");
+  if (load) load.remove();
+}
+function busyOpen(msg, progressTxt = "") {
+  document.getElementById("busy-msg").textContent = msg;
+  document.getElementById("busy-progress").textContent = progressTxt;
+  document.getElementById("busy").hidden = false;
+}
+function busyProgress(txt) {
+  document.getElementById("busy-progress").textContent = txt;
+}
+function busyClose() {
+  document.getElementById("busy").hidden = true;
+}
+function tick() {
+  return new Promise((r) => setTimeout(r, 0));
+}
+
 /* ---------- Toast ---------- */
 let toastTimer;
 function toast(msg, isErr) {
@@ -750,6 +790,9 @@ function escapeHtml(s) {
 
 /* ---------- Importación ---------- */
 async function importarLibro(file, tipo) {
+  const inputId = tipo === "ventas" ? "up-ventas" : "up-compras";
+  dzBusy(inputId, `Leyendo ${file.name}…`);
+  await tick();
   try {
     const filas = await leerArchivo(file);
     if (!filas.length) { toast("Archivo vacío", true); return; }
@@ -758,6 +801,7 @@ async function importarLibro(file, tipo) {
     const datos = filas.slice(headerIdx + 1).filter((r) => r.some((c) => c !== "" && c != null));
     const grupos = detectarMultiRate(headers);
     const mapping = detectarMapeoEstandar(headers);
+    dzClear(inputId);
     abrirModalLibro({
       headers, datos,
       mapping,
@@ -765,11 +809,14 @@ async function importarLibro(file, tipo) {
       tipo,
     });
   } catch (e) {
+    dzClear(inputId);
     toast("Error: " + e.message, true);
   }
 }
 
 async function importar390(file) {
+  dzBusy("up-390", `Leyendo ${file.name}…`);
+  await tick();
   try {
     const lineas = await extraerLineasPdf(file);
     const txt = lineas.map((l) => l.text).join("\n");
@@ -786,12 +833,23 @@ async function importar390(file) {
     toast(`Modelo 390 cargado · ${detectados} campos detectados`);
   } catch (e) {
     toast("Error 390: " + e.message, true);
+  } finally {
+    dzClear("up-390");
   }
 }
 
 async function importar303s(files) {
+  const total = files.length;
+  busyOpen(total === 1 ? `Leyendo ${files[0].name}…` : `Procesando ${total} PDFs…`,
+           total > 1 ? `0 / ${total}` : "");
+  dzBusy("up-303", total === 1 ? "Leyendo PDF…" : `Procesando ${total} PDFs…`);
+  await tick();
   const resultados = [];
+  let i = 0;
   for (const f of files) {
+    i++;
+    busyProgress(total > 1 ? `${i} / ${total} — ${f.name}` : `Analizando ${f.name}…`);
+    await tick();
     try {
       const lineas = await extraerLineasPdf(f);
       const txt = lineas.map((l) => l.text).join("\n");
@@ -815,6 +873,8 @@ async function importar303s(files) {
     }
   }
   save();
+  busyClose();
+  dzClear("up-303");
   const ok = resultados.filter((r) => r.ok);
   const fail = resultados.filter((r) => !r.ok);
   let msg = `${ok.length} de ${resultados.length} PDFs procesados`;
