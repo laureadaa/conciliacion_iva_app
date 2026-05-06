@@ -156,16 +156,139 @@ function detectarMultiRate(headers) {
   return grupos.length ? grupos : null;
 }
 
-function detectarMapeoEstandar(headers) {
-  const usados = new Set();
+function detectarMapeoEstandar(headers, datos, excluirIdx) {
+  const usados = new Set(excluirIdx || []);
+  const enMultitipo = excluirIdx && excluirIdx.length > 0;
+  // 1) Detección por nombre de cabecera
   const fecha       = detectarColumna(headers, HINTS.fecha, usados);       if (fecha != null) usados.add(fecha);
   const apellidos   = detectarColumna(headers, HINTS.apellidos, usados);   if (apellidos != null) usados.add(apellidos);
   const nombre_solo = detectarColumna(headers, HINTS.nombre_solo, usados); if (nombre_solo != null) usados.add(nombre_solo);
   const contraparte = detectarColumna(headers, HINTS.contraparte, usados); if (contraparte != null) usados.add(contraparte);
-  const tipoIva     = detectarColumna(headers, HINTS.tipoIva, usados);     if (tipoIva != null) usados.add(tipoIva);
-  const cuota       = detectarColumna(headers, HINTS.cuota, usados);       if (cuota != null) usados.add(cuota);
-  const base        = detectarColumna(headers, HINTS.base, usados);        if (base != null) usados.add(base);
-  return { fecha, apellidos, nombre_solo, contraparte, tipoIva, base, cuota };
+  const m = { fecha, apellidos, nombre_solo, contraparte, tipoIva: null, base: null, cuota: null };
+  // En modo multi-tipo, NO buscamos base/cuota/tipoIva en el mapeo estándar:
+  // esos datos viven dentro de los grupos Base{N}/IVA{N}/tiva{N} y los maneja
+  // aplicarMapeoMultitipo. Buscar aquí daría falsos positivos como "cif" o
+  // "codigo contable".
+  if (!enMultitipo) {
+    m.tipoIva = detectarColumna(headers, HINTS.tipoIva, usados); if (m.tipoIva != null) usados.add(m.tipoIva);
+    m.cuota   = detectarColumna(headers, HINTS.cuota,   usados); if (m.cuota   != null) usados.add(m.cuota);
+    m.base    = detectarColumna(headers, HINTS.base,    usados); if (m.base    != null) usados.add(m.base);
+  }
+
+  // 2) Detección por contenido como respaldo: solo si NO estamos en multitipo.
+  if (!enMultitipo && datos && datos.length) {
+    if (m.fecha == null) m.fecha = detectarColumnaPorContenido(headers, datos, "fecha", usados);
+    if (m.fecha != null) usados.add(m.fecha);
+    if (m.tipoIva == null) m.tipoIva = detectarColumnaPorContenido(headers, datos, "tipoIva", usados);
+    if (m.tipoIva != null) usados.add(m.tipoIva);
+    if (m.base == null && m.cuota == null) {
+      const cands = detectarDosColumnasMonetarias(headers, datos, usados);
+      if (cands.base != null) { m.base = cands.base; usados.add(cands.base); }
+      if (cands.cuota != null) { m.cuota = cands.cuota; usados.add(cands.cuota); }
+    } else if (m.cuota == null && m.base != null) {
+      m.cuota = detectarColumnaCuotaCercana(headers, datos, m.base, usados);
+      if (m.cuota != null) usados.add(m.cuota);
+    } else if (m.base == null && m.cuota != null) {
+      m.base = detectarColumnaBaseCercana(headers, datos, m.cuota, usados);
+      if (m.base != null) usados.add(m.base);
+    }
+  } else if (datos && datos.length && m.fecha == null) {
+    // En multitipo todavía aceptamos detección por contenido para la fecha si
+    // no se ha encontrado por cabecera (podría ser una hoja sin etiqueta).
+    m.fecha = detectarColumnaPorContenido(headers, datos, "fecha", usados);
+  }
+  return m;
+}
+
+/* Mira las primeras filas de cada columna libre y la clasifica:
+   - "fecha": >= 70 % de celdas parsean a fecha válida
+   - "tipoIva": valores enteros pequeños (0/4/10/12/21) o ratios típicos */
+function detectarColumnaPorContenido(headers, datos, esperado, usados) {
+  const muestra = datos.slice(0, Math.min(20, datos.length));
+  const candidatos = [];
+  for (let i = 0; i < headers.length; i++) {
+    if (usados && usados.has(i)) continue;
+    const vals = muestra.map((r) => r[i]).filter((v) => v !== "" && v != null);
+    if (!vals.length) continue;
+    if (esperado === "fecha") {
+      const ok = vals.filter((v) => parseFecha(v) && /^\d{4}-\d{2}-\d{2}$/.test(parseFecha(v))).length;
+      if (ok / vals.length >= 0.7) candidatos.push({ i, score: ok });
+    } else if (esperado === "tipoIva") {
+      // Excluimos el 0 explícitamente porque las celdas vacías o sin IVA
+      // se rellenan con 0 y darían falsos positivos en columnas sin contenido.
+      const setIva = new Set([4, 10, 10.5, 12, 21]);
+      const valsNoCero = vals.filter((v) => {
+        const n = num(v);
+        return n !== 0 && /^\s*\d+([.,]\d+)?\s*%?\s*$/.test(String(v));
+      });
+      if (valsNoCero.length < 2) continue;
+      const ok = valsNoCero.filter((v) => setIva.has(num(v))).length;
+      if (ok / valsNoCero.length >= 0.7) candidatos.push({ i, score: ok });
+    }
+  }
+  candidatos.sort((a, b) => b.score - a.score);
+  return candidatos[0] ? candidatos[0].i : null;
+}
+
+function _columnasMonetarias(headers, datos, usados) {
+  const muestra = datos.slice(0, Math.min(30, datos.length));
+  const cols = [];
+  for (let i = 0; i < headers.length; i++) {
+    if (usados && usados.has(i)) continue;
+    const vals = muestra.map((r) => num(r[i])).filter((v) => v !== 0);
+    if (vals.length < Math.max(2, muestra.length * 0.3)) continue;
+    const sum = vals.reduce((a, b) => a + b, 0);
+    const avg = sum / vals.length;
+    if (Math.abs(avg) < 0.5) continue; // muy pequeño, no es importe
+    cols.push({ i, avg, sum: Math.abs(sum), n: vals.length });
+  }
+  return cols;
+}
+function detectarDosColumnasMonetarias(headers, datos, usados) {
+  const cols = _columnasMonetarias(headers, datos, usados).sort((a, b) => b.sum - a.sum);
+  if (cols.length === 0) return {};
+  if (cols.length === 1) return { base: cols[0].i };
+  // base = la de mayor suma; cuota = la siguiente
+  return { base: cols[0].i, cuota: cols[1].i };
+}
+function detectarColumnaCuotaCercana(headers, datos, baseIdx, usados) {
+  // cuota suele ser ~21 %, ~10 %, ~4 % de la base; busca la columna cuya
+  // ratio media respecto a base esté entre 3 % y 25 %.
+  const muestra = datos.slice(0, Math.min(30, datos.length));
+  const candidatos = [];
+  for (let i = 0; i < headers.length; i++) {
+    if (i === baseIdx || (usados && usados.has(i))) continue;
+    const ratios = [];
+    for (const r of muestra) {
+      const b = num(r[baseIdx]);
+      const c = num(r[i]);
+      if (b > 0 && c > 0) ratios.push(c / b);
+    }
+    if (ratios.length < 2) continue;
+    const med = ratios.sort((a, b) => a - b)[Math.floor(ratios.length / 2)];
+    if (med >= 0.03 && med <= 0.25) candidatos.push({ i, med });
+  }
+  candidatos.sort((a, b) => Math.abs(b.med - 0.21) - Math.abs(a.med - 0.21));
+  return candidatos[0] ? candidatos[0].i : null;
+}
+function detectarColumnaBaseCercana(headers, datos, cuotaIdx, usados) {
+  // base: columna cuya media es 4-30x la de la cuota
+  const muestra = datos.slice(0, Math.min(30, datos.length));
+  const candidatos = [];
+  for (let i = 0; i < headers.length; i++) {
+    if (i === cuotaIdx || (usados && usados.has(i))) continue;
+    const ratios = [];
+    for (const r of muestra) {
+      const b = num(r[i]);
+      const c = num(r[cuotaIdx]);
+      if (b > 0 && c > 0) ratios.push(b / c);
+    }
+    if (ratios.length < 2) continue;
+    const med = ratios.sort((a, b) => a - b)[Math.floor(ratios.length / 2)];
+    if (med >= 4 && med <= 30) candidatos.push({ i, med });
+  }
+  candidatos.sort((a, b) => Math.abs(b.med - 4.76) - Math.abs(a.med - 4.76));
+  return candidatos[0] ? candidatos[0].i : null;
 }
 
 /* ---------- Aplicar mapeo (estándar o multitipo) ---------- */
@@ -780,7 +903,57 @@ function abrirModalLibro({ headers, datos, mapping, multi, tipo }) {
         ${mapping.cuota != null ? '<span class="auto">✓ auto</span>' : ""}</div>
       <div class="preview" id="preview"></div>`;
   }
+  // Preview crudo: primeras 5 filas del Excel para que se vea exactamente
+  // qué hay en cada columna. Las columnas asignadas se resaltan.
+  bodyHtml += `<div class="raw-preview" id="raw-preview"></div>`;
   body.innerHTML = bodyHtml;
+
+  function pintarPreviewCrudo() {
+    const m = leerMapeoActual();
+    const usados = {};
+    Object.entries(m).forEach(([k, v]) => {
+      if (typeof v === "number") usados[v] = k;
+    });
+    if (m.grupos) m.grupos.forEach((g, i) => {
+      [["base", g.base], ["iva", g.iva], ["cuota", g.cuota]].forEach(([role, idx]) => {
+        if (idx != null) usados[idx] = `g${i+1}.${role}`;
+      });
+    });
+    const colorRol = (rol) => {
+      if (!rol) return "";
+      if (rol === "fecha") return "background:#fef3c7;";
+      if (rol === "apellidos" || rol === "nombre_solo" || rol === "contraparte") return "background:#dbeafe;";
+      if (rol === "tipoIva") return "background:#fce7f3;";
+      if (rol === "base" || /g\d+\.base/.test(rol)) return "background:#dcfce7;";
+      if (rol === "cuota" || /g\d+\.cuota/.test(rol)) return "background:#bbf7d0;";
+      if (/g\d+\.iva/.test(rol)) return "background:#fce7f3;";
+      return "background:#f1f5f9;";
+    };
+
+    const cabHtml = headers.map((h, i) => {
+      const rol = usados[i];
+      const tag = rol ? `<small style="display:block;color:var(--ok);font-weight:700;">${rol}</small>` : "";
+      return `<th style="${colorRol(rol)}">${escapeHtml(h)}${tag}</th>`;
+    }).join("");
+    const filas = datos.slice(0, 5).map((r) => {
+      const cells = headers.map((_, i) => {
+        const v = r[i];
+        const rol = usados[i];
+        return `<td style="${colorRol(rol)}">${escapeHtml(String(v ?? ""))}</td>`;
+      }).join("");
+      return `<tr>${cells}</tr>`;
+    }).join("");
+    document.getElementById("raw-preview").innerHTML = `
+      <h4 style="margin:14px 0 6px;font-size:12px;color:var(--muted);">
+        Datos del Excel (primeras 5 filas) — las columnas en color son las que la app va a usar
+      </h4>
+      <div class="raw-table-wrap">
+        <table class="raw-table">
+          <thead><tr>${cabHtml}</tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>`;
+  }
 
   function leerMapeoActual() {
     const m = { ...(multi || {}) };
@@ -819,8 +992,11 @@ function abrirModalLibro({ headers, datos, mapping, multi, tipo }) {
         </tbody>
       </table>`;
   }
-  body.querySelectorAll("select[data-k]").forEach((s) => s.addEventListener("change", actualizarPreview));
+  body.querySelectorAll("select[data-k]").forEach((s) => {
+    s.addEventListener("change", () => { actualizarPreview(); pintarPreviewCrudo(); });
+  });
   actualizarPreview();
+  pintarPreviewCrudo();
 
   const cerrar = () => { document.getElementById("modal").hidden = true; };
   document.getElementById("modal-cancel").onclick = cerrar;
@@ -858,7 +1034,12 @@ async function importarLibro(file, tipo) {
     const headers = (filas[headerIdx] || []).map((c) => String(c ?? ""));
     const datos = filas.slice(headerIdx + 1).filter((r) => r.some((c) => c !== "" && c != null));
     const grupos = detectarMultiRate(headers);
-    const mapping = detectarMapeoEstandar(headers);
+    // Si hay grupos multi-tipo, NO los consideramos para el mapeo estándar
+    // (cada Base{N}/IVA{N}/tiva{N} se maneja aparte por aplicarMapeoMultitipo).
+    const excluir = grupos
+      ? grupos.flatMap((g) => [g.base, g.iva, g.cuota].filter((x) => x != null))
+      : [];
+    const mapping = detectarMapeoEstandar(headers, datos, excluir);
     dzClear(inputId);
     abrirModalLibro({
       headers, datos,
