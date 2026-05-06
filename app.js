@@ -259,6 +259,32 @@ function detectarEjercicio303(texto) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+/* Parser PDF Modelo 390 (resumen anual). Las casillas del 390 varían por
+   ejercicio, así que usamos heurísticas por proximidad de etiqueta y, como
+   respaldo, sumamos las celdas de bases/cuotas por tipo IVA si las
+   detectamos posicionalmente. Devuelve { b21, c21, b10, c10, b4, c4,
+   b_ded, c_ded }. */
+function detectarCampos390(lineas, texto) {
+  const out = {};
+  const buscar = (etq) => {
+    const re = new RegExp(etq + "[^0-9]{0,40}([\\-+]?\\d[\\d.,]*)", "i");
+    const m = texto.match(re);
+    return m ? num(m[1]) : 0;
+  };
+  // Buscamos los totales anuales por tipo, regimen general
+  out.b21 = buscar("base.{0,30}21\\s*%?");
+  out.c21 = buscar("cuota.{0,30}21\\s*%?");
+  out.b10 = buscar("base.{0,30}10\\s*%?");
+  out.c10 = buscar("cuota.{0,30}10\\s*%?");
+  out.b4  = buscar("base.{0,30}4\\s*%?");
+  out.c4  = buscar("cuota.{0,30}4\\s*%?");
+  out.b_ded = buscar("base.{0,30}deducible") || buscar("total.{0,30}base.{0,30}operac.{0,30}interior");
+  out.c_ded = buscar("cuota.{0,30}deducible") || buscar("total.{0,40}deducir");
+  // Resultado anual (casilla 84 / 86 según versión)
+  out.c_resultado = buscar("resultado.{0,30}anual") || buscar("a\\s*ingresar") || buscar("a\\s*devolver");
+  return out;
+}
+
 const CASILLAS = {
   b21: "01", c21: "03",
   b10: "04", c10: "06",
@@ -333,17 +359,23 @@ function detectarCasillas303(lineas, texto) {
 
 /* ---------- Estado ---------- */
 const empty303 = () => ({});
+const empty390 = () => ({}); // { b21, c21, b10, c10, b4, c4, b_ded, c_ded } anual
+const emptyContab = () => ({ c477: 0, c472: 0, c4750: 0, c4700: 0 });
 const estadoInicial = () => ({
   ejercicio: 2025,
   ventas: [],
   compras: [],
   m303: { 1: empty303(), 2: empty303(), 3: empty303(), 4: empty303() },
+  m390: empty390(),
+  contab: emptyContab(),
 });
 let state = cargar() || estadoInicial();
 function cargar() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (s && !s.m303) s.m303 = { 1: {}, 2: {}, 3: {}, 4: {} };
+    if (s && !s.m390) s.m390 = {};
+    if (s && !s.contab) s.contab = emptyContab();
     return s;
   } catch { return null; }
 }
@@ -384,8 +416,17 @@ function render() {
     : "Excel/CSV anual";
   const cargados303 = [1,2,3,4].filter((t) => Object.keys(state.m303[t] || {}).length > 0);
   document.getElementById("info-303").textContent = cargados303.length
-    ? `✓ ${cargados303.length} trimestres cargados (${cargados303.map((t) => t + "T").join(", ")})`
-    : "Suelta los PDFs (uno por trimestre)";
+    ? `✓ ${cargados303.length} trimestres (${cargados303.map((t) => t + "T").join(", ")})`
+    : "PDFs (1 por trimestre)";
+  const tiene390 = Object.values(state.m390 || {}).some((v) => v !== 0);
+  document.getElementById("info-390").textContent = tiene390
+    ? `✓ 390 cargado`
+    : "PDF resumen anual";
+  // Reflejar saldos contables en sus inputs
+  document.querySelectorAll("input[data-cont]").forEach((el) => {
+    const v = state.contab[el.dataset.cont] || 0;
+    if (parseFloat(el.value || "0") !== v) el.value = v;
+  });
 
   const ventasT = [1,2,3,4].map((t) => totales303Libro(state.ventas, t));
   const ventasA = totales303Libro(state.ventas, null);
@@ -476,6 +517,89 @@ function render() {
     : "";
   document.getElementById("hint-resumen").style.display =
     state.ventas.length || state.compras.length ? "none" : "";
+
+  renderAnual();
+}
+
+/* Conciliación anual: Σ libros ↔ Σ 303 ↔ 390 ↔ Cuentas contables */
+function renderAnual() {
+  const card = document.getElementById("card-anual");
+  const tiene390 = Object.values(state.m390 || {}).some((v) => v !== 0);
+  const tieneCont = Object.values(state.contab || {}).some((v) => v !== 0);
+  const tieneLibros = state.ventas.length || state.compras.length;
+  const tiene303 = hay303();
+  if (!tiene390 && !tieneCont) { card.hidden = true; return; }
+  if (!tieneLibros && !tiene303) { card.hidden = true; return; }
+  card.hidden = false;
+
+  const ventasA = totales303Libro(state.ventas, null);
+  const comprasA = totales303Libro(state.compras, null);
+  const sum303 = (k) => [1,2,3,4].reduce((a, t) => a + num(state.m303[t][k] || 0), 0);
+
+  const filas = [
+    { c: "Base 21 % (anual)",   lib: ventasA.b21,        s303: sum303("b21"),   m390: state.m390.b21 },
+    { c: "Cuota 21 % (anual)",  lib: ventasA.c21,        s303: sum303("c21"),   m390: state.m390.c21 },
+    { c: "Base 10 % (anual)",   lib: ventasA.b10,        s303: sum303("b10"),   m390: state.m390.b10 },
+    { c: "Cuota 10 % (anual)",  lib: ventasA.c10,        s303: sum303("c10"),   m390: state.m390.c10 },
+    { c: "Base 4 % (anual)",    lib: ventasA.b4,         s303: sum303("b4"),    m390: state.m390.b4 },
+    { c: "Cuota 4 % (anual)",   lib: ventasA.c4,         s303: sum303("c4"),    m390: state.m390.c4 },
+    { c: "IVA repercutido total", lib: ventasA.cuota_total, s303: sum303("c21") + sum303("c10") + sum303("c4"),
+      m390: num(state.m390.c21) + num(state.m390.c10) + num(state.m390.c4),
+      cont: state.contab.c477, contLabel: "Cuenta 477",
+      destacado: true },
+    { c: "Base IVA deducible",  lib: comprasA.base_total, s303: sum303("b_ded"), m390: state.m390.b_ded },
+    { c: "Cuota IVA deducible", lib: comprasA.cuota_total, s303: sum303("c_ded"), m390: state.m390.c_ded,
+      cont: state.contab.c472, contLabel: "Cuenta 472",
+      destacado: true },
+    { c: "Resultado IVA (devengado − deducible)",
+      lib: ventasA.cuota_total - comprasA.cuota_total,
+      s303: sum303("c71") || (sum303("c21") + sum303("c10") + sum303("c4") - sum303("c_ded")),
+      m390: state.m390.c_resultado || 0,
+      cont: num(state.contab.c4750) - num(state.contab.c4700), contLabel: "4750 − 4700",
+      destacado: true },
+  ];
+
+  const colDif = (a, b) => {
+    if (a === 0 && b === 0) return `<td class="num">—</td>`;
+    const d = a - b;
+    const cls = Math.abs(d) <= TOL_EUR ? "ok" : "warn";
+    return `<td class="num dif ${cls}">${fmt(d)}</td>`;
+  };
+
+  const colsHtml = (f) => {
+    let h = `<td class="num lib">${fmt(f.lib)}</td>`;
+    if (tiene303) {
+      h += `<td class="num">${fmt(f.s303)}</td>` + colDif(f.lib, f.s303);
+    }
+    if (tiene390) {
+      h += `<td class="num">${fmt(f.m390 || 0)}</td>` + colDif(f.lib, f.m390 || 0);
+    }
+    if (tieneCont && f.cont !== undefined) {
+      h += `<td class="num">${fmt(f.cont)}</td>` + colDif(f.lib, f.cont);
+    } else if (tieneCont) {
+      h += `<td class="num">—</td><td class="num">—</td>`;
+    }
+    return h;
+  };
+
+  const cabs = [`<th>Concepto</th>`, `<th class="num col-lib">Σ Libro</th>`];
+  if (tiene303) cabs.push(`<th class="num">Σ 303</th>`, `<th class="num">Dif.</th>`);
+  if (tiene390) cabs.push(`<th class="num">390</th>`, `<th class="num">Dif.</th>`);
+  if (tieneCont) cabs.push(`<th class="num">Cuenta</th>`, `<th class="num">Dif.</th>`);
+
+  document.getElementById("tabla-anual").className = "conc";
+  document.getElementById("tabla-anual").innerHTML = `
+    <thead><tr>${cabs.join("")}</tr></thead>
+    <tbody>
+      ${filas.map((f) => {
+        const cls = f.destacado ? 'fila-fuerte' : '';
+        return `<tr${cls ? ` class="${cls}"` : ""}>
+          <td>${f.c}${f.contLabel ? ` <small style="color:var(--muted)">↔ ${f.contLabel}</small>` : ""}</td>
+          ${colsHtml(f)}
+        </tr>`;
+      }).join("")}
+    </tbody>
+  `;
 }
 
 /* ---------- Toast ---------- */
@@ -626,6 +750,26 @@ async function importarLibro(file, tipo) {
   }
 }
 
+async function importar390(file) {
+  try {
+    const lineas = await extraerLineasPdf(file);
+    const txt = lineas.map((l) => l.text).join("\n");
+    const ej = detectarEjercicio303(txt);
+    const datos = detectarCampos390(lineas, txt);
+    const detectados = Object.values(datos).filter((v) => v !== 0).length;
+    if (detectados === 0) {
+      toast("No se detectaron datos del 390 en el PDF", true);
+      return;
+    }
+    state.m390 = datos;
+    if (ej && !state.ejercicio) state.ejercicio = ej;
+    save();
+    toast(`Modelo 390 cargado · ${detectados} campos detectados`);
+  } catch (e) {
+    toast("Error 390: " + e.message, true);
+  }
+}
+
 async function importar303s(files) {
   const resultados = [];
   for (const f of files) {
@@ -689,6 +833,15 @@ function wireDropzone(inputId, onFiles) {
 wireDropzone("up-ventas",  (fs) => importarLibro(fs[0], "ventas"));
 wireDropzone("up-compras", (fs) => importarLibro(fs[0], "compras"));
 wireDropzone("up-303",     (fs) => importar303s(fs));
+wireDropzone("up-390",     (fs) => importar390(fs[0]));
+
+// Inputs de saldos contables (PGC)
+document.querySelectorAll("input[data-cont]").forEach((el) => {
+  el.addEventListener("input", () => {
+    state.contab[el.dataset.cont] = num(el.value);
+    save();
+  });
+});
 
 document.getElementById("ejercicio").addEventListener("input", (e) => {
   state.ejercicio = parseInt(e.target.value, 10) || new Date().getFullYear();
