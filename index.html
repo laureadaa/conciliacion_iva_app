@@ -6,6 +6,10 @@
 <title>Conciliación del IVA</title>
 <link rel="stylesheet" href="styles.css" />
 <script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+</script>
 </head>
 <body>
 <header>
@@ -19,20 +23,27 @@
 </header>
 
 <main>
-  <section class="grid-2">
+  <section class="grid-3">
     <div>
       <label class="dropzone" for="up-ventas">
-        <strong>📤 Libro de Ventas (facturas emitidas)</strong>
-        <span id="info-ventas">Suelta aquí tu Excel/CSV o haz clic.</span>
+        <strong>📤 Libro de Ventas</strong>
+        <span id="info-ventas">Excel/CSV anual</span>
       </label>
       <input id="up-ventas" type="file" accept=".xlsx,.xls,.csv" hidden />
     </div>
     <div>
       <label class="dropzone" for="up-compras">
-        <strong>📥 Libro de Compras (facturas recibidas)</strong>
-        <span id="info-compras">Suelta aquí tu Excel/CSV o haz clic.</span>
+        <strong>📥 Libro de Compras</strong>
+        <span id="info-compras">Excel/CSV anual</span>
       </label>
       <input id="up-compras" type="file" accept=".xlsx,.xls,.csv" hidden />
+    </div>
+    <div>
+      <label class="dropzone" for="up-303">
+        <strong>📄 Modelos 303 declarados</strong>
+        <span id="info-303">Suelta los PDFs (uno por trimestre)</span>
+      </label>
+      <input id="up-303" type="file" accept="application/pdf" multiple hidden />
     </div>
   </section>
 
@@ -41,7 +52,7 @@
     <div class="table-wrap">
       <table id="tabla-resumen"></table>
     </div>
-    <p class="hint" id="hint-resumen">Sube tus libros para que la app calcule automáticamente lo que debes declarar en cada casilla del Modelo 303.</p>
+    <p class="hint" id="hint-resumen">Sube tus libros para que la app calcule automáticamente lo que debes declarar en cada casilla del Modelo 303. Sube también los PDFs del 303 declarado para que contraste lo declarado contra los libros.</p>
   </section>
 </main>
 

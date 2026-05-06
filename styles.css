@@ -48,7 +48,8 @@ main {
 }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
 .dropzone {
   display: flex;
@@ -118,8 +119,22 @@ input.celda-303:focus { border-color: var(--primary); outline: none; }
 }
 .modal-foot button#modal-ok:hover { background: var(--primary-dark); }
 
-.field-row { display: grid; grid-template-columns: 130px 1fr; gap: 8px; margin-bottom: 8px; align-items: center; }
-.field-row select { padding: 5px 6px; border: 1px solid var(--border); border-radius: 4px; }
+.field-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; margin-bottom: 8px; align-items: center; font-size: 13px; }
+.field-row select { padding: 5px 6px; border: 1px solid var(--border); border-radius: 4px; width: 100%; }
+.field-row .auto { font-size: 11px; color: var(--ok); margin-left: 6px; }
+.preview { font-size: 12px; margin-top: 12px; }
+.preview h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.preview table { font-family: ui-monospace, SFMono-Regular, monospace; }
+.preview td, .preview th { padding: 4px 6px; }
+
+/* Conciliación: cuadro libro/declarado/dif por trimestre */
+table.conc th.tri-header { text-align: center; border-left: 2px solid var(--border); }
+table.conc td.lib { background: #fafbfd; }
+table.conc td.dec { background: #fff; }
+table.conc td.dif.ok { color: var(--ok); }
+table.conc td.dif.warn { color: var(--err); font-weight: 700; }
+table.conc td:first-child, table.conc th:first-child { border-left: none; }
+table.conc td.lib, table.conc th.col-lib { border-left: 2px solid var(--border); }
 
 #toast {
   position: fixed; bottom: 22px; right: 22px;
