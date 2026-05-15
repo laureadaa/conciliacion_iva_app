@@ -6,11 +6,14 @@ import Clients from "./pages/Clients";
 import Dashboard from "./pages/Dashboard";
 import Emails from "./pages/Emails";
 import Income from "./pages/Income";
+import Invoices from "./pages/Invoices";
+import Leads from "./pages/Leads";
 import Login from "./pages/Login";
 import Pricing from "./pages/Pricing";
 import Profiles from "./pages/Profiles";
 import Proposals from "./pages/Proposals";
 import Register from "./pages/Register";
+import Settings from "./pages/Settings";
 
 function Protected({ children }: { children: JSX.Element }) {
   const { user, loading } = useAuth();
@@ -65,6 +68,9 @@ export default function App() {
         <Route path="emails" element={<Emails />} />
         <Route path="clients" element={<Clients />} />
         <Route path="income" element={<Income />} />
+        <Route path="invoices" element={<Invoices />} />
+        <Route path="leads" element={<Leads />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

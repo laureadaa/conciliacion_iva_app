@@ -6,6 +6,7 @@ import { emails } from "../db/schema";
 import { AuthedRequest } from "../middleware/auth";
 import { asyncHandler } from "../middleware/error";
 import { generateEmail } from "../services/generator";
+import { ensureSettings } from "./settings";
 
 const router = Router();
 
@@ -41,11 +42,19 @@ router.post(
   "/generate",
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = generateSchema.parse(req.body);
+    const s = ensureSettings(req.userId);
     const { subject, body } = generateEmail({
       type: data.type,
       clientName: data.clientName,
       context: data.context,
       language: data.language,
+      user: {
+        fullName: s.fullName,
+        businessName: s.businessName,
+        signature: s.signature,
+        website: s.website,
+        currency: s.currency,
+      },
     });
 
     const inserted = db

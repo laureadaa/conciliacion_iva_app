@@ -185,6 +185,128 @@ export interface DashboardMetrics {
   monthlyIncomeSeries: Array<{ month: string; total: number }>;
 }
 
+// ---- Settings (business profile) ----
+export interface Settings {
+  id: number;
+  userId: number;
+  businessName: string | null;
+  fullName: string | null;
+  taxId: string | null;
+  address: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  iban: string | null;
+  hourlyRate: number;
+  currency: string;
+  defaultLanguage: Language;
+  signature: string | null;
+  vatRate: number;
+  invoicePrefix: string;
+  nextInvoiceNumber: number;
+  updatedAt: string;
+}
+
+export type SettingsInput = Omit<Settings, "id" | "userId" | "updatedAt">;
+
+// ---- Invoices ----
+export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "cancelled";
+
+export interface InvoiceItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface Invoice {
+  id: number;
+  userId: number;
+  clientId: number | null;
+  number: string;
+  status: InvoiceStatus;
+  issueDate: string;
+  dueDate: string | null;
+  currency: string;
+  items: InvoiceItem[];
+  subtotal: number;
+  vatRate: number;
+  vatAmount: number;
+  total: number;
+  notes: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvoiceInput {
+  clientId: number | null;
+  status: InvoiceStatus;
+  issueDate: string;
+  dueDate: string | null;
+  currency: string;
+  items: InvoiceItem[];
+  vatRate: number;
+  notes: string | null;
+}
+
+// ---- Leads ----
+export type LeadStatus =
+  | "new"
+  | "audited"
+  | "contacted"
+  | "interested"
+  | "converted"
+  | "rejected";
+
+export interface LeadAudit {
+  url: string;
+  reachable: boolean;
+  statusCode: number | null;
+  https: boolean;
+  responseTimeMs: number | null;
+  responsiveMeta: boolean;
+  generator: string | null;
+  title: string | null;
+  description: string | null;
+  hasFavicon: boolean;
+  approxSizeKb: number;
+  imageCount: number;
+  scriptCount: number;
+  signals: string[];
+  opportunities: string[];
+  score: number;
+  auditedAt: string;
+}
+
+export interface Lead {
+  id: number;
+  userId: number;
+  name: string;
+  website: string | null;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  niche: string | null;
+  source: string | null;
+  status: LeadStatus;
+  notes: string | null;
+  audit: LeadAudit | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LeadInput {
+  name: string;
+  website?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  niche?: string | null;
+  source?: string | null;
+  status?: LeadStatus;
+  notes?: string | null;
+}
+
 // ---- API generic ----
 export interface ApiError {
   error: string;

@@ -1,0 +1,253 @@
+import { Router } from "express";
+import { z } from "zod";
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "../db";
+import { leads } from "../db/schema";
+import { AuthedRequest } from "../middleware/auth";
+import { asyncHandler } from "../middleware/error";
+import { auditUrl } from "../services/auditor";
+import { ensureSettings } from "./settings";
+import { signature } from "../services/generator-helpers";
+
+const router = Router();
+
+const leadSchema = z.object({
+  name: z.string().min(1),
+  website: z.string().nullable().optional(),
+  email: z.string().email().nullable().optional().or(z.literal("")),
+  phone: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  niche: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
+  status: z
+    .enum(["new", "audited", "contacted", "interested", "converted", "rejected"])
+    .optional(),
+  notes: z.string().nullable().optional(),
+});
+
+function rowToLead(row: typeof leads.$inferSelect) {
+  const { auditJson, ...rest } = row;
+  return {
+    ...rest,
+    audit: auditJson ? JSON.parse(auditJson) : null,
+  };
+}
+
+router.get(
+  "/",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const rows = db
+      .select()
+      .from(leads)
+      .where(eq(leads.userId, req.userId))
+      .orderBy(desc(leads.updatedAt))
+      .all();
+    res.json(rows.map(rowToLead));
+  })
+);
+
+router.post(
+  "/",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const data = leadSchema.parse(req.body);
+    const now = new Date().toISOString();
+    const inserted = db
+      .insert(leads)
+      .values({
+        userId: req.userId,
+        name: data.name,
+        website: data.website || null,
+        email: data.email || null,
+        phone: data.phone || null,
+        city: data.city || null,
+        niche: data.niche || null,
+        source: data.source || null,
+        status: data.status || "new",
+        notes: data.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .all();
+    res.status(201).json(rowToLead(inserted[0]));
+  })
+);
+
+router.put(
+  "/:id",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    const data = leadSchema.parse(req.body);
+    const updated = db
+      .update(leads)
+      .set({
+        name: data.name,
+        website: data.website || null,
+        email: data.email || null,
+        phone: data.phone || null,
+        city: data.city || null,
+        niche: data.niche || null,
+        source: data.source || null,
+        status: data.status || "new",
+        notes: data.notes || null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(eq(leads.id, id), eq(leads.userId, req.userId)))
+      .returning()
+      .all();
+    if (updated.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json(rowToLead(updated[0]));
+  })
+);
+
+router.delete(
+  "/:id",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    const deleted = db
+      .delete(leads)
+      .where(and(eq(leads.id, id), eq(leads.userId, req.userId)))
+      .returning()
+      .all();
+    if (deleted.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json({ ok: true });
+  })
+);
+
+// Audit a lead's website
+router.post(
+  "/:id/audit",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    const row = db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.id, id), eq(leads.userId, req.userId)))
+      .all()[0];
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (!row.website) return res.status(400).json({ error: "Lead has no website" });
+
+    const audit = await auditUrl(row.website);
+    const updated = db
+      .update(leads)
+      .set({
+        auditJson: JSON.stringify(audit),
+        status: row.status === "new" ? "audited" : row.status,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(leads.id, id))
+      .returning()
+      .all();
+    res.json(rowToLead(updated[0]));
+  })
+);
+
+// Bulk audit
+router.post(
+  "/audit-all",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const rows = db
+      .select()
+      .from(leads)
+      .where(eq(leads.userId, req.userId))
+      .all();
+    const updated: ReturnType<typeof rowToLead>[] = [];
+    for (const row of rows) {
+      if (!row.website) continue;
+      try {
+        const audit = await auditUrl(row.website);
+        const r = db
+          .update(leads)
+          .set({
+            auditJson: JSON.stringify(audit),
+            status: row.status === "new" ? "audited" : row.status,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(leads.id, row.id))
+          .returning()
+          .all();
+        updated.push(rowToLead(r[0]));
+      } catch {
+        // skip failures
+      }
+    }
+    res.json({ updated: updated.length });
+  })
+);
+
+// Generate outreach email tailored to the audit findings
+router.post(
+  "/:id/outreach",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    const language = (req.body?.language === "en" ? "en" : "es") as "es" | "en";
+    const row = db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.id, id), eq(leads.userId, req.userId)))
+      .all()[0];
+    if (!row) return res.status(404).json({ error: "Not found" });
+
+    const audit = row.auditJson ? JSON.parse(row.auditJson) : null;
+    const s = ensureSettings(req.userId);
+    const sign = signature({
+      fullName: s.fullName,
+      businessName: s.businessName,
+      website: s.website,
+      signature: s.signature,
+    }, language);
+
+    const isEs = language === "es";
+    const opps: string[] = audit?.opportunities || [];
+    const headline = opps[0] || (isEs ? "Mejorar la presencia online de tu negocio." : "Improve your business online presence.");
+    const bulletList = (opps.slice(1, 4).length ? opps.slice(1, 4) : [
+      isEs ? "Velocidad y rendimiento óptimo en móvil." : "Optimal mobile speed and performance.",
+      isEs ? "SEO básico (title, description, Open Graph)." : "Basic SEO (title, description, Open Graph).",
+      isEs ? "HTTPS y dominio bien configurados." : "HTTPS and proper domain setup.",
+    ])
+      .map((o) => `• ${o}`)
+      .join("\n");
+
+    const subject = isEs
+      ? `Un par de ideas para mejorar ${row.name}`
+      : `A couple of ideas to improve ${row.name}`;
+
+    const body = isEs
+      ? `Hola,\n\nMe llamo ${s.fullName || s.businessName || "y soy desarrolladora freelance"}, ${s.fullName ? "soy desarrolladora freelance" : ""}. He visto vuestra web${audit?.url ? ` (${audit.url})` : ""} y me he tomado unos minutos para analizarla con detalle, porque me parece que se le puede sacar mucho más.\n\nEn resumen, lo que mejor podría aportar valor:\n${headline ? "• " + headline + "\n" : ""}${bulletList}\n\nNada de "te lo tienes que rehacer todo": son mejoras concretas que se pueden hacer en pocos días y se ven en resultados (más leads, menos tasa de rebote, mejor posicionamiento).\n\n¿Te encajaría una llamada de 15 minutos esta semana para enseñarte exactamente qué cambiaría y un presupuesto orientativo? Sin compromiso.\n\n${sign}`
+      : `Hi,\n\nMy name is ${s.fullName || s.businessName || "and I'm a freelance developer"}. I came across your website${audit?.url ? ` (${audit.url})` : ""} and took a few minutes to analyze it in detail — I think there's a lot more value you could get from it.\n\nIn short, where I could add the most value:\n${headline ? "• " + headline + "\n" : ""}${bulletList}\n\nNothing like "you need to redo everything": these are concrete improvements doable in a few days that translate into real results (more leads, lower bounce rate, better ranking).\n\nWould a 15-minute call this week work to walk you through exactly what I'd change and a rough estimate? No commitment.\n\n${sign}`;
+
+    res.json({ subject, body });
+  })
+);
+
+// Bulk import (rows: { name, website?, email?, ... })
+router.post(
+  "/import",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const rows = z.array(leadSchema).parse(req.body);
+    const now = new Date().toISOString();
+    let count = 0;
+    for (const row of rows) {
+      db.insert(leads)
+        .values({
+          userId: req.userId,
+          name: row.name,
+          website: row.website || null,
+          email: row.email || null,
+          phone: row.phone || null,
+          city: row.city || null,
+          niche: row.niche || null,
+          source: row.source || "csv",
+          status: row.status || "new",
+          notes: row.notes || null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      count++;
+    }
+    res.json({ imported: count });
+  })
+);
+
+export default router;

@@ -61,6 +61,64 @@ export const emails = sqliteTable("emails", {
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const settings = sqliteTable("settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  businessName: text("business_name"),
+  fullName: text("full_name"),
+  taxId: text("tax_id"),
+  address: text("address"),
+  email: text("email"),
+  phone: text("phone"),
+  website: text("website"),
+  iban: text("iban"),
+  hourlyRate: real("hourly_rate").notNull().default(45),
+  currency: text("currency").notNull().default("EUR"),
+  defaultLanguage: text("default_language").notNull().default("es"),
+  signature: text("signature"),
+  vatRate: real("vat_rate").notNull().default(21),
+  invoicePrefix: text("invoice_prefix").notNull().default("INV"),
+  nextInvoiceNumber: integer("next_invoice_number").notNull().default(1),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const invoices = sqliteTable("invoices", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  clientId: integer("client_id").references(() => clients.id, { onDelete: "set null" }),
+  number: text("number").notNull(),
+  status: text("status").notNull().default("draft"),
+  issueDate: text("issue_date").notNull(),
+  dueDate: text("due_date"),
+  currency: text("currency").notNull().default("EUR"),
+  itemsJson: text("items_json").notNull(),
+  subtotal: real("subtotal").notNull().default(0),
+  vatRate: real("vat_rate").notNull().default(21),
+  vatAmount: real("vat_amount").notNull().default(0),
+  total: real("total").notNull().default(0),
+  notes: text("notes"),
+  paidAt: text("paid_at"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const leads = sqliteTable("leads", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  website: text("website"),
+  email: text("email"),
+  phone: text("phone"),
+  city: text("city"),
+  niche: text("niche"),
+  source: text("source"),
+  status: text("status").notNull().default("new"),
+  notes: text("notes"),
+  auditJson: text("audit_json"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const incomes = sqliteTable("incomes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

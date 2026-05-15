@@ -1,15 +1,66 @@
 services:
   app:
     build: .
-    container_name: freelance-ai-suite
+    container_name: freelance-suite
     restart: unless-stopped
-    ports:
-      - "4000:4000"
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (use: openssl rand -hex 32)}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
       - DATABASE_URL=/app/data/app.db
     volumes:
-      - ./data:/app/data
+      - app_data:/app/data
+      - app_backups:/app/backups
+    expose:
+      - "4000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: freelance-suite-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+  # Daily SQLite backup. Runs the backup script every 24h.
+  backup:
+    image: alpine:3.20
+    container_name: freelance-suite-backup
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=/app/data/app.db
+      - BACKUP_DIR=/app/backups
+    volumes:
+      - app_data:/app/data:ro
+      - app_backups:/app/backups
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache sqlite gzip > /dev/null
+        echo "[backup-sidecar] ready"
+        while true; do
+          sh /usr/local/bin/backup.sh || true
+          sleep 86400
+        done
+
+volumes:
+  app_data:
+  app_backups:
+  caddy_data:
+  caddy_config:

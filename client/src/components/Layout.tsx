@@ -10,7 +10,10 @@ const navItems = [
   { to: "/profiles", label: "Perfiles", icon: "👤" },
   { to: "/emails", label: "Emails", icon: "✉️" },
   { to: "/clients", label: "Clientes", icon: "👥" },
+  { to: "/invoices", label: "Facturas", icon: "🧾" },
   { to: "/income", label: "Ingresos", icon: "📈" },
+  { to: "/leads", label: "Leads", icon: "🎯" },
+  { to: "/settings", label: "Ajustes", icon: "⚙️" },
 ];
 
 export default function Layout() {

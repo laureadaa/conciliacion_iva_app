@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AuthedRequest } from "../middleware/auth";
 import { asyncHandler } from "../middleware/error";
 import { generateJustification } from "../services/generator";
+import { ensureSettings } from "./settings";
 
 const router = Router();
 
@@ -52,6 +53,7 @@ router.post(
   "/calculate",
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = calculateSchema.parse(req.body);
+    const s = ensureSettings(req.userId);
     const key = data.projectType.toLowerCase().trim();
     const baseTable = BASE_HOURS[key] || BASE_HOURS.other;
     const baseHours = baseTable[data.complexity];
@@ -67,7 +69,7 @@ router.post(
     }
 
     const totalHours = baseHours + extraTotal;
-    const rate = data.hourlyRate || 45;
+    const rate = data.hourlyRate || s.hourlyRate || 45;
 
     const recommendedMid = totalHours * rate;
     const result = {
@@ -87,7 +89,7 @@ router.post(
         hours: Math.round(totalHours * 1.15),
       },
       breakdown,
-      currency: "EUR",
+      currency: s.currency || "EUR",
     };
     res.json(result);
   })
@@ -97,12 +99,14 @@ router.post(
   "/justify",
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = justifySchema.parse(req.body);
+    const s = ensureSettings(req.userId);
     const content = generateJustification({
       projectType: data.projectType,
       complexity: data.complexity,
       extras: data.extras,
       price: data.price,
       language: data.language,
+      user: { currency: s.currency },
     });
     res.json({ content });
   })

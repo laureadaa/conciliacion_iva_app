@@ -6,6 +6,7 @@ import { proposals } from "../db/schema";
 import { AuthedRequest } from "../middleware/auth";
 import { asyncHandler } from "../middleware/error";
 import { generateProposal } from "../services/generator";
+import { ensureSettings } from "./settings";
 
 const router = Router();
 
@@ -62,12 +63,21 @@ router.post(
   "/generate",
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = generateSchema.parse(req.body);
+    const s = ensureSettings(req.userId);
     const content = generateProposal({
       projectType: data.projectType,
       clientDescription: data.clientDescription,
       budget: data.budget,
       deadline: data.deadline,
       language: data.language,
+      user: {
+        fullName: s.fullName,
+        businessName: s.businessName,
+        hourlyRate: s.hourlyRate,
+        currency: s.currency,
+        signature: s.signature,
+        website: s.website,
+      },
     });
 
     const isEs = data.language === "es";

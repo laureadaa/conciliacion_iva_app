@@ -1,0 +1,28 @@
+# =====================================================
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt)
+# Set DOMAIN in .env to your domain (e.g. app.midominio.com)
+# Caddy will auto-issue + renew certs.
+# For local testing, leave DOMAIN=localhost.
+# =====================================================
+
+{$DOMAIN} {
+	encode gzip zstd
+
+	@api path /api/*
+	reverse_proxy @api app:4000
+
+	# Everything else (SPA + static)
+	reverse_proxy app:4000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
