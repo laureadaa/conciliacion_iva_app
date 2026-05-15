@@ -12,7 +12,6 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.27.3",
     "@freelance/shared": "1.0.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.3.0",

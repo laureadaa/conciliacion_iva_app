@@ -5,7 +5,7 @@ import { db } from "../db";
 import { proposals } from "../db/schema";
 import { AuthedRequest } from "../middleware/auth";
 import { asyncHandler } from "../middleware/error";
-import { complete } from "../services/anthropic";
+import { generateProposal } from "../services/generator";
 
 const router = Router();
 
@@ -62,18 +62,15 @@ router.post(
   "/generate",
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = generateSchema.parse(req.body);
+    const content = generateProposal({
+      projectType: data.projectType,
+      clientDescription: data.clientDescription,
+      budget: data.budget,
+      deadline: data.deadline,
+      language: data.language,
+    });
+
     const isEs = data.language === "es";
-
-    const system = isEs
-      ? "Eres una asistente experta en redacción de propuestas freelance para desarrolladoras. Escribes propuestas profesionales, claras y convincentes de aproximadamente 200 palabras. Estructura: saludo personalizado, comprensión del problema, propuesta de solución técnica, entregables y siguientes pasos. Tono cercano pero profesional."
-      : "You are an expert assistant writing freelance proposals for developers. You write professional, clear and convincing proposals of about 200 words. Structure: personalized greeting, problem understanding, technical solution proposal, deliverables and next steps. Friendly yet professional tone.";
-
-    const user = isEs
-      ? `Genera una propuesta de ~200 palabras.\n\nTipo de proyecto: ${data.projectType}\nDescripción del cliente: ${data.clientDescription}\nPresupuesto: ${data.budget ? `${data.budget} EUR` : "no especificado"}\nPlazo: ${data.deadline || "flexible"}\n\nDevuelve solo el texto de la propuesta, sin notas ni meta-comentarios.`
-      : `Write a proposal of ~200 words.\n\nProject type: ${data.projectType}\nClient description: ${data.clientDescription}\nBudget: ${data.budget ? `${data.budget} EUR` : "unspecified"}\nDeadline: ${data.deadline || "flexible"}\n\nReturn only the proposal text, no notes or meta-comments.`;
-
-    const content = await complete({ system, user, maxTokens: 700 });
-
     const title =
       data.title ||
       `${data.projectType} — ${new Date().toLocaleDateString(isEs ? "es-ES" : "en-US")}`;

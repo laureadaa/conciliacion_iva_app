@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { AuthedRequest } from "../middleware/auth";
 import { asyncHandler } from "../middleware/error";
-import { complete } from "../services/anthropic";
+import { generateJustification } from "../services/generator";
 
 const router = Router();
 
@@ -97,16 +97,13 @@ router.post(
   "/justify",
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = justifySchema.parse(req.body);
-    const isEs = data.language === "es";
-    const system = isEs
-      ? "Eres una experta en ventas para freelancers. Escribes argumentaciones de precio breves, claras y persuasivas, justificando el valor del trabajo con criterios técnicos y de negocio."
-      : "You are a sales expert for freelancers. You write short, clear, persuasive price justifications backed by technical and business value.";
-
-    const user = isEs
-      ? `Justifica el precio de ${data.price} EUR para un proyecto tipo "${data.projectType}" de complejidad ${data.complexity}. Extras incluidos: ${data.extras.join(", ") || "ninguno"}. Devuelve 3-5 párrafos cortos en tono profesional para enviar al cliente.`
-      : `Justify a price of ${data.price} EUR for a project of type "${data.projectType}" with ${data.complexity} complexity. Included extras: ${data.extras.join(", ") || "none"}. Return 3-5 short paragraphs in a professional tone to send to the client.`;
-
-    const content = await complete({ system, user, maxTokens: 700 });
+    const content = generateJustification({
+      projectType: data.projectType,
+      complexity: data.complexity,
+      extras: data.extras,
+      price: data.price,
+      language: data.language,
+    });
     res.json({ content });
   })
 );

@@ -5,7 +5,7 @@ import { db } from "../db";
 import { profiles } from "../db/schema";
 import { AuthedRequest } from "../middleware/auth";
 import { asyncHandler } from "../middleware/error";
-import { complete } from "../services/anthropic";
+import { generateProfile } from "../services/generator";
 
 const router = Router();
 
@@ -35,37 +35,14 @@ router.post(
   "/generate",
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = generateSchema.parse(req.body);
-    const isEs = data.language === "es";
-
-    const platformGuidance: Record<string, { es: string; en: string }> = {
-      malt: {
-        es: "Optimiza para Malt: bio en primera persona, destaca experiencia y resultados, máx ~600 caracteres, mezcla habilidades técnicas y soft.",
-        en: "Optimized for Malt: first-person bio, highlight experience and outcomes, max ~600 chars, mix technical and soft skills.",
-      },
-      upwork: {
-        es: "Optimiza para Upwork: gancho fuerte en la primera frase, beneficios para el cliente, palabras clave SEO, call-to-action al final.",
-        en: "Optimized for Upwork: strong hook in the first line, client-focused benefits, SEO keywords, call-to-action at the end.",
-      },
-      linkedin: {
-        es: "Optimiza para LinkedIn: tono profesional pero humano, storytelling breve, métricas si es posible, hashtags al final.",
-        en: "Optimized for LinkedIn: professional yet human tone, brief storytelling, metrics if possible, hashtags at the end.",
-      },
-      other: {
-        es: "Bio profesional genérica para portafolio.",
-        en: "Generic professional bio for a portfolio.",
-      },
-    };
-
-    const guidance = platformGuidance[data.platform][data.language];
-    const system = isEs
-      ? "Eres una copywriter experta en perfiles profesionales para desarrolladoras freelance. Escribes bios claras, persuasivas, sin clichés."
-      : "You are a copywriter expert in professional profiles for freelance developers. You write clear, persuasive bios without clichés.";
-
-    const user = isEs
-      ? `Genera una bio para ${data.name}, desarrolladora con ${data.yearsExperience} años de experiencia, especializada en "${data.niche}". Stack: ${data.technologies.join(", ")}. Plataforma: ${data.platform}. ${guidance}. Devuelve solo la bio.`
-      : `Generate a bio for ${data.name}, a developer with ${data.yearsExperience} years of experience, specialized in "${data.niche}". Stack: ${data.technologies.join(", ")}. Platform: ${data.platform}. ${guidance}. Return only the bio.`;
-
-    const content = await complete({ system, user, maxTokens: 700 });
+    const content = generateProfile({
+      name: data.name,
+      yearsExperience: data.yearsExperience,
+      technologies: data.technologies,
+      platform: data.platform,
+      niche: data.niche,
+      language: data.language,
+    });
 
     const inserted = db
       .insert(profiles)
