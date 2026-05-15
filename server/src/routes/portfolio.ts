@@ -16,6 +16,7 @@ const serviceSchema = z.object({
   price: z.string(),
   duration: z.string(),
   bullets: z.array(z.string()).default([]),
+  featured: z.boolean().optional(),
 });
 
 const caseStudySchema = z.object({
@@ -25,6 +26,42 @@ const caseStudySchema = z.object({
   url: z.string(),
   tags: z.array(z.string()).default([]),
   imageUrl: z.string().nullable(),
+  metric: z.string().nullable().default(null),
+  metricLabel: z.string().nullable().default(null),
+});
+
+const testimonialSchema = z.object({
+  id: z.string(),
+  quote: z.string().min(1),
+  name: z.string().min(1),
+  role: z.string(),
+  company: z.string(),
+  avatarUrl: z.string().nullable(),
+});
+
+const processStepSchema = z.object({
+  id: z.string(),
+  title: z.string().min(1),
+  description: z.string(),
+});
+
+const faqSchema = z.object({
+  id: z.string(),
+  question: z.string().min(1),
+  answer: z.string(),
+});
+
+const statSchema = z.object({
+  id: z.string(),
+  value: z.string(),
+  label: z.string(),
+});
+
+const valuePropSchema = z.object({
+  id: z.string(),
+  icon: z.string(),
+  title: z.string().min(1),
+  description: z.string(),
 });
 
 const socialsSchema = z.object({
@@ -49,9 +86,16 @@ const portfolioSchema = z.object({
   bio: z.string().nullable(),
   services: z.array(serviceSchema),
   caseStudies: z.array(caseStudySchema),
+  testimonials: z.array(testimonialSchema),
+  processSteps: z.array(processStepSchema),
+  faqs: z.array(faqSchema),
+  stats: z.array(statSchema),
+  valueProps: z.array(valuePropSchema),
   availability: z.string().nullable(),
+  responseTime: z.string().nullable(),
   socials: socialsSchema,
   accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  theme: z.enum(["light", "dark"]),
   photoUrl: z.string().nullable(),
   contactEmail: z.string().email().nullable().or(z.literal("")),
   technologies: z.array(z.string()),
@@ -86,9 +130,16 @@ function rowToPortfolio(row: typeof portfolios.$inferSelect) {
     bio: row.bio,
     services: JSON.parse(row.servicesJson),
     caseStudies: JSON.parse(row.caseStudiesJson),
+    testimonials: JSON.parse(row.testimonialsJson || "[]"),
+    processSteps: JSON.parse(row.processStepsJson || "[]"),
+    faqs: JSON.parse(row.faqsJson || "[]"),
+    stats: JSON.parse(row.statsJson || "[]"),
+    valueProps: JSON.parse(row.valuePropsJson || "[]"),
     availability: row.availability,
+    responseTime: row.responseTime,
     socials: JSON.parse(row.socialsJson),
     accentColor: row.accentColor,
+    theme: (row.theme || "light") as "light" | "dark",
     photoUrl: row.photoUrl,
     contactEmail: row.contactEmail,
     technologies: JSON.parse(row.technologiesJson),
@@ -110,7 +161,6 @@ function ensurePortfolio(userId: number) {
   const settings = ensureSettings(userId);
   const baseName = settings.fullName || settings.businessName || user?.name || "freelance";
   let slug = slugify(baseName) || `user-${userId}`;
-  // Ensure unique slug
   let counter = 1;
   let final = slug;
   while (db.select().from(portfolios).where(eq(portfolios.slug, final)).all().length > 0) {
@@ -128,11 +178,16 @@ function ensurePortfolio(userId: number) {
       bio: null,
       servicesJson: "[]",
       caseStudiesJson: "[]",
+      testimonialsJson: "[]",
+      processStepsJson: "[]",
+      faqsJson: "[]",
+      statsJson: "[]",
+      valuePropsJson: "[]",
       availability: null,
-      socialsJson: JSON.stringify({
-        website: settings.website || undefined,
-      }),
+      responseTime: "Respondo en menos de 48h",
+      socialsJson: JSON.stringify({ website: settings.website || undefined }),
       accentColor: "#7c3aed",
+      theme: "light",
       photoUrl: null,
       contactEmail: settings.email,
       technologiesJson: "[]",
@@ -145,7 +200,6 @@ function ensurePortfolio(userId: number) {
   return inserted[0];
 }
 
-// ---- Private: edit your own portfolio ----
 router.get(
   "/me",
   authMiddleware,
@@ -161,7 +215,6 @@ router.put(
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = portfolioSchema.parse(req.body);
     ensurePortfolio(req.userId);
-    // Ensure slug uniqueness if changed
     const others = db
       .select()
       .from(portfolios)
@@ -182,9 +235,16 @@ router.put(
         bio: data.bio,
         servicesJson: JSON.stringify(data.services),
         caseStudiesJson: JSON.stringify(data.caseStudies),
+        testimonialsJson: JSON.stringify(data.testimonials),
+        processStepsJson: JSON.stringify(data.processSteps),
+        faqsJson: JSON.stringify(data.faqs),
+        statsJson: JSON.stringify(data.stats),
+        valuePropsJson: JSON.stringify(data.valueProps),
         availability: data.availability,
+        responseTime: data.responseTime,
         socialsJson: JSON.stringify(data.socials),
         accentColor: data.accentColor,
+        theme: data.theme,
         photoUrl: data.photoUrl,
         contactEmail: data.contactEmail || null,
         technologiesJson: JSON.stringify(data.technologies),
@@ -198,7 +258,6 @@ router.put(
   })
 );
 
-// ---- Public: view portfolio (no auth) ----
 router.get(
   "/public/:slug",
   asyncHandler(async (req, res) => {
@@ -220,9 +279,16 @@ router.get(
       bio: p.bio,
       services: p.services,
       caseStudies: p.caseStudies,
+      testimonials: p.testimonials,
+      processSteps: p.processSteps,
+      faqs: p.faqs,
+      stats: p.stats,
+      valueProps: p.valueProps,
       availability: p.availability,
+      responseTime: p.responseTime,
       socials: p.socials,
       accentColor: p.accentColor,
+      theme: p.theme,
       photoUrl: p.photoUrl,
       contactEmail: p.contactEmail,
       technologies: p.technologies,
@@ -231,7 +297,6 @@ router.get(
   })
 );
 
-// ---- Public: contact form posts a lead to the owner ----
 router.post(
   "/public/:slug/contact",
   asyncHandler(async (req, res) => {

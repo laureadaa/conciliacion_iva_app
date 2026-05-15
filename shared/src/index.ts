@@ -364,6 +364,7 @@ export interface PortfolioService {
   price: string;
   duration: string;
   bullets: string[];
+  featured?: boolean;
 }
 
 export interface PortfolioCaseStudy {
@@ -373,6 +374,42 @@ export interface PortfolioCaseStudy {
   url: string;
   tags: string[];
   imageUrl: string | null;
+  metric: string | null;
+  metricLabel: string | null;
+}
+
+export interface PortfolioTestimonial {
+  id: string;
+  quote: string;
+  name: string;
+  role: string;
+  company: string;
+  avatarUrl: string | null;
+}
+
+export interface PortfolioProcessStep {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface PortfolioFaq {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+export interface PortfolioStat {
+  id: string;
+  value: string;
+  label: string;
+}
+
+export interface PortfolioValueProp {
+  id: string;
+  icon: string;
+  title: string;
+  description: string;
 }
 
 export interface PortfolioSocials {
@@ -395,9 +432,16 @@ export interface Portfolio {
   bio: string | null;
   services: PortfolioService[];
   caseStudies: PortfolioCaseStudy[];
+  testimonials: PortfolioTestimonial[];
+  processSteps: PortfolioProcessStep[];
+  faqs: PortfolioFaq[];
+  stats: PortfolioStat[];
+  valueProps: PortfolioValueProp[];
   availability: string | null;
+  responseTime: string | null;
   socials: PortfolioSocials;
   accentColor: string;
+  theme: "light" | "dark";
   photoUrl: string | null;
   contactEmail: string | null;
   technologies: string[];
@@ -406,38 +450,11 @@ export interface Portfolio {
   updatedAt: string;
 }
 
-export interface PortfolioInput {
-  slug: string;
-  displayName: string | null;
-  headline: string | null;
-  tagline: string;
-  bio: string | null;
-  services: PortfolioService[];
-  caseStudies: PortfolioCaseStudy[];
-  availability: string | null;
-  socials: PortfolioSocials;
-  accentColor: string;
-  photoUrl: string | null;
-  contactEmail: string | null;
-  technologies: string[];
-  published: boolean;
-}
+export type PortfolioInput = Omit<Portfolio, "id" | "userId" | "createdAt" | "updatedAt">;
 
-export interface PublicPortfolio {
-  slug: string;
+export type PublicPortfolio = Omit<Portfolio, "id" | "userId" | "createdAt" | "updatedAt" | "published"> & {
   displayName: string;
-  headline: string | null;
-  tagline: string;
-  bio: string | null;
-  services: PortfolioService[];
-  caseStudies: PortfolioCaseStudy[];
-  availability: string | null;
-  socials: PortfolioSocials;
-  accentColor: string;
-  photoUrl: string | null;
-  contactEmail: string | null;
-  technologies: string[];
-}
+};
 
 export interface PortfolioContactInput {
   name: string;

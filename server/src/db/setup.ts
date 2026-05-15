@@ -131,6 +131,13 @@ const tables = [
     photo_url TEXT,
     contact_email TEXT,
     technologies_json TEXT NOT NULL DEFAULT '[]',
+    testimonials_json TEXT NOT NULL DEFAULT '[]',
+    process_steps_json TEXT NOT NULL DEFAULT '[]',
+    faqs_json TEXT NOT NULL DEFAULT '[]',
+    stats_json TEXT NOT NULL DEFAULT '[]',
+    value_props_json TEXT NOT NULL DEFAULT '[]',
+    response_time TEXT,
+    theme TEXT NOT NULL DEFAULT 'light',
     published INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -166,6 +173,13 @@ const additions: Array<{ table: string; column: string; ddl: string }> = [
   { table: "settings", column: "smtp_app_password", ddl: "TEXT" },
   { table: "settings", column: "smtp_from_name", ddl: "TEXT" },
   { table: "settings", column: "smtp_daily_limit", ddl: "INTEGER NOT NULL DEFAULT 30" },
+  { table: "portfolios", column: "testimonials_json", ddl: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "portfolios", column: "process_steps_json", ddl: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "portfolios", column: "faqs_json", ddl: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "portfolios", column: "stats_json", ddl: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "portfolios", column: "value_props_json", ddl: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "portfolios", column: "response_time", ddl: "TEXT" },
+  { table: "portfolios", column: "theme", ddl: "TEXT NOT NULL DEFAULT 'light'" },
 ];
 
 export function applySchema(verbose = false): void {
