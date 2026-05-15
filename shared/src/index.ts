@@ -356,6 +356,96 @@ export interface LeadInput {
   notes?: string | null;
 }
 
+// ---- Portfolio ----
+export interface PortfolioService {
+  id: string;
+  title: string;
+  description: string;
+  price: string;
+  duration: string;
+  bullets: string[];
+}
+
+export interface PortfolioCaseStudy {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  tags: string[];
+  imageUrl: string | null;
+}
+
+export interface PortfolioSocials {
+  github?: string;
+  linkedin?: string;
+  twitter?: string;
+  email?: string;
+  website?: string;
+  malt?: string;
+  upwork?: string;
+}
+
+export interface Portfolio {
+  id: number;
+  userId: number;
+  slug: string;
+  displayName: string | null;
+  headline: string | null;
+  tagline: string;
+  bio: string | null;
+  services: PortfolioService[];
+  caseStudies: PortfolioCaseStudy[];
+  availability: string | null;
+  socials: PortfolioSocials;
+  accentColor: string;
+  photoUrl: string | null;
+  contactEmail: string | null;
+  technologies: string[];
+  published: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PortfolioInput {
+  slug: string;
+  displayName: string | null;
+  headline: string | null;
+  tagline: string;
+  bio: string | null;
+  services: PortfolioService[];
+  caseStudies: PortfolioCaseStudy[];
+  availability: string | null;
+  socials: PortfolioSocials;
+  accentColor: string;
+  photoUrl: string | null;
+  contactEmail: string | null;
+  technologies: string[];
+  published: boolean;
+}
+
+export interface PublicPortfolio {
+  slug: string;
+  displayName: string;
+  headline: string | null;
+  tagline: string;
+  bio: string | null;
+  services: PortfolioService[];
+  caseStudies: PortfolioCaseStudy[];
+  availability: string | null;
+  socials: PortfolioSocials;
+  accentColor: string;
+  photoUrl: string | null;
+  contactEmail: string | null;
+  technologies: string[];
+}
+
+export interface PortfolioContactInput {
+  name: string;
+  email: string;
+  message: string;
+  company?: string;
+}
+
 // ---- API generic ----
 export interface ApiError {
   error: string;

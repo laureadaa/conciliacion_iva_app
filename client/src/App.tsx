@@ -10,6 +10,8 @@ import Invoices from "./pages/Invoices";
 import Leads from "./pages/Leads";
 import Login from "./pages/Login";
 import Outbox from "./pages/Outbox";
+import PortfolioEditor from "./pages/PortfolioEditor";
+import PortfolioPublic from "./pages/PortfolioPublic";
 import Pricing from "./pages/Pricing";
 import Profiles from "./pages/Profiles";
 import Proposals from "./pages/Proposals";
@@ -39,6 +41,9 @@ function Public({ children }: { children: JSX.Element }) {
 export default function App() {
   return (
     <Routes>
+      {/* Fully public portfolio — no auth, no layout */}
+      <Route path="/p/:slug" element={<PortfolioPublic />} />
+
       <Route
         path="/login"
         element={
@@ -72,6 +77,7 @@ export default function App() {
         <Route path="invoices" element={<Invoices />} />
         <Route path="leads" element={<Leads />} />
         <Route path="outbox" element={<Outbox />} />
+        <Route path="portfolio" element={<PortfolioEditor />} />
         <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

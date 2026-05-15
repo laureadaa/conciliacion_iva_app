@@ -19,6 +19,7 @@ import invoiceRoutes from "./routes/invoices";
 import leadRoutes from "./routes/leads";
 import outboxRoutes from "./routes/outbox";
 import discoverRoutes from "./routes/discover";
+import portfolioRoutes from "./routes/portfolio";
 import { applySchema } from "./db/setup";
 
 // Ensure DB schema exists at boot (safe idempotent)
@@ -44,6 +45,8 @@ app.use("/api/invoices", authMiddleware, invoiceRoutes);
 app.use("/api/leads", authMiddleware, leadRoutes);
 app.use("/api/outbox", authMiddleware, outboxRoutes);
 app.use("/api/discover", authMiddleware, discoverRoutes);
+// Portfolio: mixed auth — auth handled per-route inside
+app.use("/api/portfolio", portfolioRoutes);
 
 // ---- Serve frontend in production ----
 if (config.nodeEnv === "production") {

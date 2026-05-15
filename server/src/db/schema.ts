@@ -86,6 +86,27 @@ export const settings = sqliteTable("settings", {
   updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const portfolios = sqliteTable("portfolios", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull().unique(),
+  displayName: text("display_name"),
+  headline: text("headline"),
+  tagline: text("tagline").notNull().default(""),
+  bio: text("bio"),
+  servicesJson: text("services_json").notNull().default("[]"),
+  caseStudiesJson: text("case_studies_json").notNull().default("[]"),
+  availability: text("availability"),
+  socialsJson: text("socials_json").notNull().default("{}"),
+  accentColor: text("accent_color").notNull().default("#7c3aed"),
+  photoUrl: text("photo_url"),
+  contactEmail: text("contact_email"),
+  technologiesJson: text("technologies_json").notNull().default("[]"),
+  published: integer("published", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const outbox = sqliteTable("outbox", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

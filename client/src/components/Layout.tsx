@@ -14,6 +14,7 @@ const navItems = [
   { to: "/income", label: "Ingresos", icon: "📈" },
   { to: "/leads", label: "Leads", icon: "🎯" },
   { to: "/outbox", label: "Outbox", icon: "📤" },
+  { to: "/portfolio", label: "Portfolio", icon: "✨" },
   { to: "/settings", label: "Ajustes", icon: "⚙️" },
 ];
 

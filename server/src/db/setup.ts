@@ -115,6 +115,26 @@ const tables = [
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
+  `CREATE TABLE IF NOT EXISTS portfolios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    slug TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    headline TEXT,
+    tagline TEXT NOT NULL DEFAULT '',
+    bio TEXT,
+    services_json TEXT NOT NULL DEFAULT '[]',
+    case_studies_json TEXT NOT NULL DEFAULT '[]',
+    availability TEXT,
+    socials_json TEXT NOT NULL DEFAULT '{}',
+    accent_color TEXT NOT NULL DEFAULT '#7c3aed',
+    photo_url TEXT,
+    contact_email TEXT,
+    technologies_json TEXT NOT NULL DEFAULT '[]',
+    published INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
   `CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
