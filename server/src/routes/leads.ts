@@ -101,10 +101,26 @@ router.put(
   })
 );
 
+// Delete ALL leads of the current user — must be BEFORE /:id to avoid match
+router.delete(
+  "/delete-all",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const deleted = db
+      .delete(leads)
+      .where(eq(leads.userId, req.userId))
+      .returning({ id: leads.id })
+      .all();
+    res.json({ deleted: deleted.length });
+  })
+);
+
 router.delete(
   "/:id",
   asyncHandler(async (req: AuthedRequest, res) => {
     const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
     const deleted = db
       .delete(leads)
       .where(and(eq(leads.id, id), eq(leads.userId, req.userId)))
@@ -323,14 +339,40 @@ router.post(
   })
 );
 
-// Bulk import (rows: { name, website?, email?, ... })
+function normalize(s: string | null | undefined): string {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+// Bulk import with deduplication (vs existing + within batch)
 router.post(
   "/import",
   asyncHandler(async (req: AuthedRequest, res) => {
     const rows = z.array(leadSchema).parse(req.body);
     const now = new Date().toISOString();
-    let count = 0;
+
+    // Build a set of existing leads keys for this user
+    const existing = db
+      .select({ name: leads.name, city: leads.city })
+      .from(leads)
+      .where(eq(leads.userId, req.userId))
+      .all();
+    const seen = new Set(
+      existing.map((e) => `${normalize(e.name)}|${normalize(e.city)}`)
+    );
+
+    let imported = 0;
+    let skipped = 0;
     for (const row of rows) {
+      const key = `${normalize(row.name)}|${normalize(row.city)}`;
+      if (seen.has(key)) {
+        skipped++;
+        continue;
+      }
+      seen.add(key);
       db.insert(leads)
         .values({
           userId: req.userId,
@@ -347,9 +389,39 @@ router.post(
           updatedAt: now,
         })
         .run();
-      count++;
+      imported++;
     }
-    res.json({ imported: count });
+    res.json({ imported, skipped });
+  })
+);
+
+// Delete duplicates (keep oldest, by name+city normalized)
+router.post(
+  "/dedupe",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const all = db
+      .select()
+      .from(leads)
+      .where(eq(leads.userId, req.userId))
+      .all();
+    const seen = new Map<string, number>(); // key -> id to keep
+    const toDelete: number[] = [];
+    // Sort by id ASC so oldest wins
+    all.sort((a, b) => a.id - b.id);
+    for (const r of all) {
+      const key = `${normalize(r.name)}|${normalize(r.city)}`;
+      if (seen.has(key)) {
+        toDelete.push(r.id);
+      } else {
+        seen.set(key, r.id);
+      }
+    }
+    for (const id of toDelete) {
+      db.delete(leads)
+        .where(and(eq(leads.id, id), eq(leads.userId, req.userId)))
+        .run();
+    }
+    res.json({ removed: toDelete.length });
   })
 );
 

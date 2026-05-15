@@ -77,6 +77,8 @@ export default function LeadsPage() {
 
   const [enriching, setEnriching] = useState(false);
   const [queuing, setQueuing] = useState(false);
+  const [dedupingBusy, setDedupingBusy] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   function load() {
     return api.get<Lead[]>("/leads").then(setLeads);
@@ -168,6 +170,42 @@ export default function LeadsPage() {
     setDiscSectors((arr) =>
       arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]
     );
+  }
+
+  async function dedupe() {
+    setDedupingBusy(true);
+    try {
+      const r = await api.post<{ removed: number }>("/leads/dedupe", {});
+      toast.success(
+        r.removed > 0
+          ? `Eliminados ${r.removed} duplicados`
+          : "No había duplicados"
+      );
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setDedupingBusy(false);
+    }
+  }
+
+  async function deleteAll() {
+    const msg = `¿Borrar TODOS los leads (${leads.length})?\n\nEsta acción no se puede deshacer. Los datos de outbox que referencien estos leads quedarán sin lead asociado.\n\nEscribe BORRAR para confirmar:`;
+    const confirmation = window.prompt(msg);
+    if (confirmation !== "BORRAR") {
+      if (confirmation !== null) toast.message("Cancelado");
+      return;
+    }
+    setDeletingAll(true);
+    try {
+      const r = await api.del<{ deleted: number }>("/leads/delete-all");
+      toast.success(`Borrados ${r.deleted} leads`);
+      setLeads([]);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setDeletingAll(false);
+    }
   }
 
   function openNew() {
@@ -319,6 +357,26 @@ export default function LeadsPage() {
             <button className="btn-ghost" onClick={openNew}>
               + Nuevo
             </button>
+            {leads.length > 0 && (
+              <>
+                <button
+                  className="btn-ghost text-xs"
+                  onClick={dedupe}
+                  disabled={dedupingBusy}
+                  title="Elimina duplicados (mismo nombre y ciudad)"
+                >
+                  {dedupingBusy ? <Spinner /> : "Quitar duplicados"}
+                </button>
+                <button
+                  className="btn-ghost text-xs text-rose-600"
+                  onClick={deleteAll}
+                  disabled={deletingAll}
+                  title="Borrar TODOS los leads"
+                >
+                  {deletingAll ? <Spinner /> : `Borrar todos (${leads.length})`}
+                </button>
+              </>
+            )}
           </>
         }
       />

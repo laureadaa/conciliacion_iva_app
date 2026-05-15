@@ -51,21 +51,25 @@ router.post(
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = importSchema.parse(req.body);
 
-    // Skip duplicates by name+city already in user's leads
+    // Skip duplicates by normalized name+city already in user's leads
+    const norm = (s: string | null | undefined) =>
+      (s || "")
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .toLowerCase()
+        .trim();
     const existing = db
       .select({ name: leads.name, city: leads.city })
       .from(leads)
       .where(eq(leads.userId, req.userId))
       .all();
-    const seen = new Set(
-      existing.map((e) => `${(e.name || "").toLowerCase()}|${(e.city || "").toLowerCase()}`)
-    );
+    const seen = new Set(existing.map((e) => `${norm(e.name)}|${norm(e.city)}`));
 
     let imported = 0;
     let skipped = 0;
     const now = new Date().toISOString();
     for (const h of data.hits) {
-      const key = `${h.name.toLowerCase()}|${h.city.toLowerCase()}`;
+      const key = `${norm(h.name)}|${norm(h.city)}`;
       if (seen.has(key)) {
         skipped++;
         continue;
