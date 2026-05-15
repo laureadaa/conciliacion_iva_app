@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { Client, ClientStatus } from "@freelance/shared";
+import type { Client, ClientStatus } from "@pitchfork/shared";
 import { api } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Modal from "../components/Modal";

@@ -204,10 +204,59 @@ export interface Settings {
   vatRate: number;
   invoicePrefix: string;
   nextInvoiceNumber: number;
+  smtpUser: string | null;
+  smtpAppPassword: string | null;
+  smtpFromName: string | null;
+  smtpDailyLimit: number;
   updatedAt: string;
 }
 
 export type SettingsInput = Omit<Settings, "id" | "userId" | "updatedAt">;
+
+// ---- Outbox ----
+export type OutboxStatus = "pending" | "sending" | "sent" | "failed";
+
+export interface OutboxEmail {
+  id: number;
+  userId: number;
+  leadId: number | null;
+  recipient: string;
+  recipientName: string | null;
+  subject: string;
+  body: string;
+  status: OutboxStatus;
+  errorMessage: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---- Discover (lead finder from OpenStreetMap) ----
+export interface DiscoverRequest {
+  city: string;
+  sectors: string[];
+  onlyWithoutWebsite: boolean;
+  limit?: number;
+}
+
+export interface DiscoverHit {
+  name: string;
+  category: string;
+  website: string | null;
+  email: string | null;
+  phone: string | null;
+  city: string;
+  address: string | null;
+  lat: number;
+  lon: number;
+  osmId: string;
+}
+
+export interface DiscoverResult {
+  hits: DiscoverHit[];
+  imported: number;
+  skippedDuplicates: number;
+}
 
 // ---- Invoices ----
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "cancelled";

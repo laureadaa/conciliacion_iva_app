@@ -13,6 +13,7 @@ const navItems = [
   { to: "/invoices", label: "Facturas", icon: "🧾" },
   { to: "/income", label: "Ingresos", icon: "📈" },
   { to: "/leads", label: "Leads", icon: "🎯" },
+  { to: "/outbox", label: "Outbox", icon: "📤" },
   { to: "/settings", label: "Ajustes", icon: "⚙️" },
 ];
 
@@ -26,7 +27,7 @@ export default function Layout() {
     <div className="min-h-screen">
       {/* Mobile top bar */}
       <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden dark:border-slate-800 dark:bg-slate-900">
-        <span className="text-lg font-semibold">Freelance AI</span>
+        <span className="text-lg font-semibold">Pitchfork</span>
         <button
           className="btn-ghost"
           onClick={() => setOpen((v) => !v)}
@@ -46,7 +47,7 @@ export default function Layout() {
             <div className="grid h-8 w-8 place-items-center rounded-lg bg-brand-600 text-white">
               ✦
             </div>
-            <span className="text-lg font-semibold">Freelance AI</span>
+            <span className="text-lg font-semibold">Pitchfork</span>
           </div>
 
           <nav className="flex flex-col gap-1">

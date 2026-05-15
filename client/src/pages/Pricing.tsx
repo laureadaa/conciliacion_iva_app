@@ -4,7 +4,7 @@ import type {
   Language,
   PricingResult,
   ProjectComplexity,
-} from "@freelance/shared";
+} from "@pitchfork/shared";
 import { api } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Spinner from "../components/Spinner";

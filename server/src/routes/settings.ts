@@ -24,6 +24,10 @@ const settingsSchema = z.object({
   vatRate: z.number().min(0).max(100),
   invoicePrefix: z.string().min(1).max(16),
   nextInvoiceNumber: z.number().int().min(1),
+  smtpUser: z.string().email().nullable().optional().or(z.literal("")),
+  smtpAppPassword: z.string().nullable().optional(),
+  smtpFromName: z.string().nullable().optional(),
+  smtpDailyLimit: z.number().int().min(1).max(500).default(30),
 });
 
 export function ensureSettings(userId: number) {
@@ -37,11 +41,18 @@ export function ensureSettings(userId: number) {
   return inserted[0];
 }
 
+function maskAppPassword<T extends { smtpAppPassword?: string | null }>(row: T): T {
+  if (row.smtpAppPassword) {
+    return { ...row, smtpAppPassword: "••••••••••••" };
+  }
+  return row;
+}
+
 router.get(
   "/",
   asyncHandler(async (req: AuthedRequest, res) => {
     const row = ensureSettings(req.userId);
-    res.json(row);
+    res.json(maskAppPassword(row));
   })
 );
 
@@ -49,7 +60,12 @@ router.put(
   "/",
   asyncHandler(async (req: AuthedRequest, res) => {
     const data = settingsSchema.parse(req.body);
-    ensureSettings(req.userId);
+    const existing = ensureSettings(req.userId);
+    // If the client sent the masked placeholder, keep the existing password
+    const appPassword =
+      data.smtpAppPassword && data.smtpAppPassword.includes("•")
+        ? existing.smtpAppPassword
+        : data.smtpAppPassword || null;
     const updated = db
       .update(settings)
       .set({
@@ -68,12 +84,16 @@ router.put(
         vatRate: data.vatRate,
         invoicePrefix: data.invoicePrefix,
         nextInvoiceNumber: data.nextInvoiceNumber,
+        smtpUser: data.smtpUser || null,
+        smtpAppPassword: appPassword,
+        smtpFromName: data.smtpFromName || null,
+        smtpDailyLimit: data.smtpDailyLimit ?? 30,
         updatedAt: new Date().toISOString(),
       })
       .where(eq(settings.userId, req.userId))
       .returning()
       .all();
-    res.json(updated[0]);
+    res.json(maskAppPassword(updated[0]));
   })
 );
 

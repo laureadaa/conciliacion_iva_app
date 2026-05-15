@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { Language, Settings } from "@freelance/shared";
+import type { Language, Settings } from "@pitchfork/shared";
 import { api } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Spinner from "../components/Spinner";
@@ -42,6 +42,10 @@ export default function SettingsPage() {
         vatRate: Number(data.vatRate),
         invoicePrefix: data.invoicePrefix,
         nextInvoiceNumber: Number(data.nextInvoiceNumber),
+        smtpUser: data.smtpUser || null,
+        smtpAppPassword: data.smtpAppPassword || null,
+        smtpFromName: data.smtpFromName || null,
+        smtpDailyLimit: Number(data.smtpDailyLimit) || 30,
       });
       setData(saved);
       toast.success("Ajustes guardados");
@@ -204,6 +208,71 @@ export default function SettingsPage() {
           />
           <p className="mt-2 text-xs text-slate-500">
             Si la dejas vacía, se generará una firma automática con tu nombre y web.
+          </p>
+        </section>
+
+        <section className="card">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold">Email (Gmail SMTP)</h3>
+            <a
+              className="text-xs text-brand-600 hover:underline"
+              href="https://myaccount.google.com/apppasswords"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Crear App password →
+            </a>
+          </div>
+          <p className="mb-4 text-xs text-slate-500">
+            Para enviar emails de outreach desde tu Gmail. Necesitas activar la
+            verificación en 2 pasos y generar una <strong>App password</strong> (16
+            caracteres). Tu contraseña normal no funciona y nunca se almacena.
+          </p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Tu Gmail">
+              <input
+                type="email"
+                className="input"
+                value={data.smtpUser || ""}
+                onChange={(e) => set("smtpUser", e.target.value)}
+                placeholder="tucorreo@gmail.com"
+                autoComplete="off"
+              />
+            </Field>
+            <Field label="App password (16 caracteres)">
+              <input
+                type="password"
+                className="input font-mono"
+                value={data.smtpAppPassword || ""}
+                onChange={(e) => set("smtpAppPassword", e.target.value)}
+                placeholder="abcd efgh ijkl mnop"
+                autoComplete="new-password"
+              />
+            </Field>
+            <Field label="Nombre del remitente (opcional)">
+              <input
+                className="input"
+                value={data.smtpFromName || ""}
+                onChange={(e) => set("smtpFromName", e.target.value)}
+                placeholder="Laura García"
+              />
+            </Field>
+            <Field label="Límite envíos/día">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                className="input"
+                value={data.smtpDailyLimit}
+                onChange={(e) =>
+                  set("smtpDailyLimit", Number(e.target.value) || 30)
+                }
+              />
+            </Field>
+          </div>
+          <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+            ⚠️ Gmail personal bloquea cuentas si se envían más de 100/día seguidos
+            de manera automatizada. Mantén el límite a 30 para empezar.
           </p>
         </section>
 

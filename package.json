@@ -1,8 +1,8 @@
 {
-  "name": "freelance-ai-suite",
+  "name": "pitchfork",
   "version": "1.0.0",
   "private": true,
-  "description": "AI-powered freelance management suite for developers",
+  "description": "Pitchfork — freelance OS: discover leads, audit websites, pitch, close, get paid.",
   "workspaces": [
     "client",
     "server",

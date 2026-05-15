@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { Lead, LeadStatus, Language } from "@freelance/shared";
+import type { Lead, LeadStatus, Language } from "@pitchfork/shared";
 import { api } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Modal from "../components/Modal";
@@ -47,6 +47,37 @@ export default function LeadsPage() {
   const [csv, setCsv] = useState("");
   const [importing, setImporting] = useState(false);
 
+  // Discover modal state
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [discCity, setDiscCity] = useState("Córdoba");
+  const [discSectors, setDiscSectors] = useState<string[]>([
+    "restaurante",
+    "peluqueria",
+    "taller_mecanico",
+    "abogado",
+    "gestoria",
+  ]);
+  const [discOnlyNoWeb, setDiscOnlyNoWeb] = useState(true);
+  const [sectorOptions, setSectorOptions] = useState<Record<string, string>>({});
+  const [discBusy, setDiscBusy] = useState(false);
+  const [discHits, setDiscHits] = useState<
+    Array<{
+      name: string;
+      category: string;
+      website: string | null;
+      email: string | null;
+      phone: string | null;
+      city: string;
+      address: string | null;
+      lat: number;
+      lon: number;
+      osmId: string;
+    }>
+  >([]);
+
+  const [enriching, setEnriching] = useState(false);
+  const [queuing, setQueuing] = useState(false);
+
   function load() {
     return api.get<Lead[]>("/leads").then(setLeads);
   }
@@ -54,7 +85,90 @@ export default function LeadsPage() {
     load()
       .catch((e) => toast.error(e instanceof Error ? e.message : "Error"))
       .finally(() => setLoading(false));
+    api
+      .get<Record<string, string>>("/discover/sectors")
+      .then(setSectorOptions)
+      .catch(() => {});
   }, []);
+
+  async function doDiscover() {
+    setDiscBusy(true);
+    setDiscHits([]);
+    try {
+      const r = await api.post<{ hits: typeof discHits }>("/discover/search", {
+        city: discCity,
+        sectors: discSectors,
+        onlyWithoutWebsite: discOnlyNoWeb,
+      });
+      setDiscHits(r.hits);
+      if (r.hits.length === 0) {
+        toast.message("Sin resultados. Prueba con otros sectores o ciudad.");
+      } else {
+        toast.success(`${r.hits.length} negocios encontrados`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error en la búsqueda");
+    } finally {
+      setDiscBusy(false);
+    }
+  }
+
+  async function doDiscoverImport() {
+    if (discHits.length === 0) return;
+    setDiscBusy(true);
+    try {
+      const r = await api.post<{ imported: number; skipped: number }>(
+        "/discover/import",
+        { hits: discHits }
+      );
+      toast.success(`Importados ${r.imported} · Duplicados ignorados: ${r.skipped}`);
+      setDiscoverOpen(false);
+      setDiscHits([]);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al importar");
+    } finally {
+      setDiscBusy(false);
+    }
+  }
+
+  async function enrichEmails() {
+    setEnriching(true);
+    try {
+      const r = await api.post<{ checked: number; found: number }>(
+        "/discover/enrich-emails",
+        {}
+      );
+      toast.success(`Comprobados ${r.checked}, encontrados ${r.found} emails`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setEnriching(false);
+    }
+  }
+
+  async function queueOutreach() {
+    if (!confirm("Encolar emails para todos los leads auditados con email?")) return;
+    setQueuing(true);
+    try {
+      const r = await api.post<{ queued: number; skipped: number }>(
+        "/leads/queue-outreach",
+        { language: "es", onlyAudited: false }
+      );
+      toast.success(`Encolados ${r.queued} (saltados ${r.skipped})`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setQueuing(false);
+    }
+  }
+
+  function toggleSector(s: string) {
+    setDiscSectors((arr) =>
+      arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]
+    );
+  }
 
   function openNew() {
     setEditing(null);
@@ -187,14 +301,23 @@ export default function LeadsPage() {
         subtitle="Prospección con auditor de webs y outreach automático"
         actions={
           <>
-            <button className="btn-secondary" onClick={() => setImportOpen(true)}>
-              Importar CSV
+            <button className="btn-primary" onClick={() => setDiscoverOpen(true)}>
+              🔎 Descubrir leads
+            </button>
+            <button className="btn-secondary" onClick={enrichEmails} disabled={enriching}>
+              {enriching ? <Spinner /> : "Buscar emails"}
             </button>
             <button className="btn-secondary" onClick={auditAll} disabled={auditingAll}>
               {auditingAll ? <Spinner /> : "Auditar todos"}
             </button>
-            <button className="btn-primary" onClick={openNew}>
-              + Nuevo lead
+            <button className="btn-secondary" onClick={queueOutreach} disabled={queuing}>
+              {queuing ? <Spinner /> : "Encolar outreach"}
+            </button>
+            <button className="btn-ghost" onClick={() => setImportOpen(true)}>
+              CSV
+            </button>
+            <button className="btn-ghost" onClick={openNew}>
+              + Nuevo
             </button>
           </>
         }
@@ -530,6 +653,117 @@ export default function LeadsPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Discover modal */}
+      <Modal
+        open={discoverOpen}
+        onClose={() => setDiscoverOpen(false)}
+        title="Descubrir negocios (OpenStreetMap)"
+        maxWidth="max-w-4xl"
+        footer={
+          <>
+            <button className="btn-ghost" onClick={() => setDiscoverOpen(false)}>
+              Cerrar
+            </button>
+            <button className="btn-secondary" onClick={doDiscover} disabled={discBusy}>
+              {discBusy ? <Spinner /> : "Buscar"}
+            </button>
+            <button
+              className="btn-primary"
+              onClick={doDiscoverImport}
+              disabled={discBusy || discHits.length === 0}
+            >
+              {discBusy ? <Spinner /> : `Importar ${discHits.length}`}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="md:col-span-1">
+              <label className="label">Ciudad</label>
+              <input
+                className="input"
+                value={discCity}
+                onChange={(e) => setDiscCity(e.target.value)}
+                placeholder="Córdoba"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Municipio español (admin_level 8).
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <label className="label">Sectores</label>
+              <div className="flex flex-wrap gap-1 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                {Object.entries(sectorOptions).map(([k, label]) => {
+                  const on = discSectors.includes(k);
+                  return (
+                    <button
+                      type="button"
+                      key={k}
+                      onClick={() => toggleSector(k)}
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium transition ${
+                        on
+                          ? "bg-brand-600 text-white"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={discOnlyNoWeb}
+              onChange={(e) => setDiscOnlyNoWeb(e.target.checked)}
+            />
+            Solo los que <strong>NO tienen web</strong> en OSM
+          </label>
+
+          {discHits.length > 0 && (
+            <div className="max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <table className="min-w-full text-sm">
+                <thead className="sticky top-0 bg-white dark:bg-slate-900">
+                  <tr className="text-left text-xs uppercase text-slate-500">
+                    <th className="p-2">Nombre</th>
+                    <th className="p-2">Sector</th>
+                    <th className="p-2">Email</th>
+                    <th className="p-2">Teléfono</th>
+                    <th className="p-2">Dirección</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {discHits.map((h, i) => (
+                    <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="p-2 font-medium">{h.name}</td>
+                      <td className="p-2 text-xs text-slate-500">
+                        {sectorOptions[h.category] || h.category}
+                      </td>
+                      <td className="p-2 text-xs">{h.email || "—"}</td>
+                      <td className="p-2 text-xs">{h.phone || "—"}</td>
+                      <td className="p-2 text-xs text-slate-500">
+                        {h.address || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="text-xs text-slate-500">
+            Tras importar, usa <strong>Buscar emails</strong> (descubre emails
+            visitando la web del lead si tiene) y <strong>Auditar todos</strong>{" "}
+            (analiza señales de cada web). Después <strong>Encolar outreach</strong> y
+            revisa en <strong>Outbox</strong>.
+          </p>
+        </div>
       </Modal>
 
       {/* Import CSV */}

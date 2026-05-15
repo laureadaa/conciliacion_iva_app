@@ -9,6 +9,7 @@ import Income from "./pages/Income";
 import Invoices from "./pages/Invoices";
 import Leads from "./pages/Leads";
 import Login from "./pages/Login";
+import Outbox from "./pages/Outbox";
 import Pricing from "./pages/Pricing";
 import Profiles from "./pages/Profiles";
 import Proposals from "./pages/Proposals";
@@ -70,6 +71,7 @@ export default function App() {
         <Route path="income" element={<Income />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="leads" element={<Leads />} />
+        <Route path="outbox" element={<Outbox />} />
         <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -32,9 +32,9 @@ export default function Login() {
           <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-brand-600 text-2xl text-white">
             ✦
           </div>
-          <h1 className="text-2xl font-bold">Freelance AI Suite</h1>
+          <h1 className="text-2xl font-bold">Pitchfork</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Tu asistente freelance con IA
+            Find. Pitch. Close. Get paid.
           </p>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">

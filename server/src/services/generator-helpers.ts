@@ -1,4 +1,4 @@
-import type { Language } from "@freelance/shared";
+import type { Language } from "@pitchfork/shared";
 import type { UserContext } from "./generator";
 
 export function signature(user: UserContext, language: Language): string {

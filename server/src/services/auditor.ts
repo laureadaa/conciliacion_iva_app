@@ -4,10 +4,10 @@
 // CMS hints, page weight, etc. No external dependencies.
 // ============================================================
 
-import type { LeadAudit } from "@freelance/shared";
+import type { LeadAudit } from "@pitchfork/shared";
 
 const UA =
-  "Mozilla/5.0 (compatible; FreelanceSuiteAuditor/1.0; +https://example.com/bot)";
+  "Mozilla/5.0 (compatible; PitchforkAuditor/1.0; +https://pitchfork.dev/bot)";
 
 function normalizeUrl(input: string): string {
   let url = input.trim();

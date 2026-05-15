@@ -9,7 +9,7 @@ import {
   YAxis,
 } from "recharts";
 import { toast } from "sonner";
-import type { Client, Income } from "@freelance/shared";
+import type { Client, Income } from "@pitchfork/shared";
 import { api } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Modal from "../components/Modal";

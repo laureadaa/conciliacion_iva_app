@@ -8,7 +8,7 @@ import type {
   Language,
   Platform,
   ProjectComplexity,
-} from "@freelance/shared";
+} from "@pitchfork/shared";
 
 export interface UserContext {
   fullName?: string | null;

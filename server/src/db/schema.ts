@@ -79,6 +79,25 @@ export const settings = sqliteTable("settings", {
   vatRate: real("vat_rate").notNull().default(21),
   invoicePrefix: text("invoice_prefix").notNull().default("INV"),
   nextInvoiceNumber: integer("next_invoice_number").notNull().default(1),
+  smtpUser: text("smtp_user"),
+  smtpAppPassword: text("smtp_app_password"),
+  smtpFromName: text("smtp_from_name"),
+  smtpDailyLimit: integer("smtp_daily_limit").notNull().default(30),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const outbox = sqliteTable("outbox", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  recipient: text("recipient").notNull(),
+  recipientName: text("recipient_name"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("pending"),
+  errorMessage: text("error_message"),
+  sentAt: text("sent_at"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

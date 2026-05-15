@@ -8,6 +8,7 @@ import { asyncHandler } from "../middleware/error";
 import { auditUrl } from "../services/auditor";
 import { ensureSettings } from "./settings";
 import { signature } from "../services/generator-helpers";
+import { outbox } from "../db/schema";
 
 const router = Router();
 
@@ -217,6 +218,108 @@ router.post(
       : `Hi,\n\nMy name is ${s.fullName || s.businessName || "and I'm a freelance developer"}. I came across your website${audit?.url ? ` (${audit.url})` : ""} and took a few minutes to analyze it in detail — I think there's a lot more value you could get from it.\n\nIn short, where I could add the most value:\n${headline ? "• " + headline + "\n" : ""}${bulletList}\n\nNothing like "you need to redo everything": these are concrete improvements doable in a few days that translate into real results (more leads, lower bounce rate, better ranking).\n\nWould a 15-minute call this week work to walk you through exactly what I'd change and a rough estimate? No commitment.\n\n${sign}`;
 
     res.json({ subject, body });
+  })
+);
+
+// Queue ready-to-send outreach into outbox (for leads with email)
+router.post(
+  "/queue-outreach",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const language = (req.body?.language === "en" ? "en" : "es") as "es" | "en";
+    const onlyAudited = req.body?.onlyAudited !== false;
+
+    const rows = db
+      .select()
+      .from(leads)
+      .where(eq(leads.userId, req.userId))
+      .all();
+    const candidates = rows.filter(
+      (l) =>
+        l.email &&
+        l.status === (onlyAudited ? "audited" : l.status) &&
+        l.status !== "contacted"
+    );
+
+    const s = ensureSettings(req.userId);
+    const sign = signature(
+      {
+        fullName: s.fullName,
+        businessName: s.businessName,
+        website: s.website,
+        signature: s.signature,
+      },
+      language
+    );
+
+    let queued = 0;
+    const now = new Date().toISOString();
+    for (const lead of candidates) {
+      // Skip if there's already a pending/sent outbox entry for this lead
+      const existing = db
+        .select()
+        .from(outbox)
+        .where(and(eq(outbox.userId, req.userId), eq(outbox.leadId, lead.id)))
+        .all();
+      if (existing.length > 0) continue;
+
+      const audit = lead.auditJson ? JSON.parse(lead.auditJson) : null;
+      const isEs = language === "es";
+      const opps: string[] = audit?.opportunities || [];
+      const headline =
+        opps[0] ||
+        (isEs
+          ? "Mejorar la presencia online de tu negocio."
+          : "Improve your business online presence.");
+      const bulletList = (opps.slice(1, 4).length
+        ? opps.slice(1, 4)
+        : [
+            isEs
+              ? "Velocidad y rendimiento óptimo en móvil."
+              : "Optimal mobile speed and performance.",
+            isEs
+              ? "SEO básico (title, description, Open Graph)."
+              : "Basic SEO (title, description, Open Graph).",
+            isEs
+              ? "HTTPS y dominio bien configurados."
+              : "HTTPS and proper domain setup.",
+          ])
+        .map((o) => `• ${o}`)
+        .join("\n");
+
+      const subject = isEs
+        ? `Un par de ideas para mejorar ${lead.name}`
+        : `A couple of ideas to improve ${lead.name}`;
+
+      const intro = isEs
+        ? `Soy ${s.fullName || s.businessName || "desarrolladora freelance"}`
+        : `My name is ${s.fullName || s.businessName || "and I'm a freelance developer"}`;
+
+      const webRef = audit?.url
+        ? isEs
+          ? ` (${audit.url})`
+          : ` (${audit.url})`
+        : "";
+
+      const body = isEs
+        ? `Hola,\n\n${intro}. He visto vuestra web${webRef} y me he tomado unos minutos para analizarla con detalle, porque me parece que se le puede sacar mucho más.\n\nEn resumen, lo que mejor podría aportar valor:\n• ${headline}\n${bulletList}\n\nNada de "te lo tienes que rehacer todo": son mejoras concretas que se pueden hacer en pocos días y se ven en resultados (más clientes, menos tasa de rebote, mejor posicionamiento).\n\n¿Te encajaría una llamada de 15 minutos esta semana para enseñarte exactamente qué cambiaría y un presupuesto orientativo? Sin compromiso.\n\n${sign}`
+        : `Hi,\n\n${intro}. I came across your website${webRef} and took a few minutes to analyze it in detail — I think there's a lot more value you could get from it.\n\nIn short, where I could add the most value:\n• ${headline}\n${bulletList}\n\nNothing like "you need to redo everything": these are concrete improvements doable in a few days that translate into real results.\n\nWould a 15-minute call this week work to walk you through exactly what I'd change and a rough estimate? No commitment.\n\n${sign}`;
+
+      db.insert(outbox)
+        .values({
+          userId: req.userId,
+          leadId: lead.id,
+          recipient: lead.email!,
+          recipientName: lead.name,
+          subject,
+          body,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      queued++;
+    }
+    res.json({ queued, skipped: candidates.length - queued });
   })
 );
 

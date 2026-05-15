@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { DashboardMetrics } from "@freelance/shared";
+import type { DashboardMetrics } from "@pitchfork/shared";
 import { api } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Spinner from "../components/Spinner";

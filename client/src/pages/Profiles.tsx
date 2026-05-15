@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { Language, Platform, Profile } from "@freelance/shared";
+import type { Language, Platform, Profile } from "@pitchfork/shared";
 import { api } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Spinner from "../components/Spinner";

@@ -6,7 +6,7 @@ import type {
   InvoiceItem,
   InvoiceStatus,
   Settings,
-} from "@freelance/shared";
+} from "@pitchfork/shared";
 import { api } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Modal from "../components/Modal";
